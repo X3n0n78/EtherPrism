@@ -1,4 +1,5 @@
 // Imports
+import './style.css';
 import { PcapParser } from './parser/pcap.js';
 import { ProtocolParser, Protocols } from './parser/protocol.js';
 import { renderNetworkGraph } from './visualizer/network_graph.js';
