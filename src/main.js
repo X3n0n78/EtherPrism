@@ -1,9 +1,7 @@
-import './style.css'
-
 // Imports
 import { PcapParser } from './parser/pcap.js';
 import { ProtocolParser, Protocols } from './parser/protocol.js';
-import { renderSankey } from './visualizer/sankey.js';
+import { renderNetworkGraph } from './visualizer/network_graph.js';
 
 // State
 const state = {
@@ -16,10 +14,16 @@ const state = {
 // Elements
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
-const statusBar = document.getElementById('status-bar');
+const statusText = document.getElementById('status-text');
+const statusDot = document.getElementById('status-dot');
+const browseBtn = document.querySelector('.btn-browse');
 
 // Event Listeners
-dropZone.addEventListener('click', () => fileInput.click());
+if (browseBtn) browseBtn.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('click', (e) => {
+    // Prevent double trigger if clicking the button (which bubbles)
+    if (e.target !== browseBtn) fileInput.click();
+});
 
 dropZone.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -43,11 +47,12 @@ fileInput.addEventListener('change', (e) => {
 
 async function handleFile(file) {
     console.log('File dropped:', file.name);
-    statusBar.textContent = `Reading ${file.name}...`;
+    statusText.textContent = `Reading...`;
+    statusDot.classList.add('active');
 
     try {
         const arrayBuffer = await readFileAsArrayBuffer(file);
-        statusBar.textContent = `Parsing ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)...`;
+        statusText.textContent = `Parsing ${(file.size / 1024 / 1024).toFixed(2)} MB...`;
 
         // Give UI a moment to update
         await new Promise(r => setTimeout(r, 50));
@@ -85,7 +90,7 @@ async function handleFile(file) {
         });
 
         console.log('Flows found:', flows);
-        statusBar.textContent = `Analysis Complete.Found ${flows.size} flows from ${state.packets.length} IP packets.`;
+        statusText.textContent = `Analysis Complete. Flows: ${flows.size} | Packets: ${state.packets.length}`;
 
         // Convert flows map to array for D3
         const flowData = Array.from(flows.values());
@@ -93,7 +98,8 @@ async function handleFile(file) {
 
     } catch (err) {
         console.error(err);
-        statusBar.textContent = 'Error parsing file: ' + err.message;
+        statusText.textContent = 'Error: ' + err.message;
+        statusDot.classList.add('error');
     }
 }
 
@@ -118,6 +124,6 @@ function renderVisualization(data) {
         return;
     }
 
-    // Render D3 Sankey
-    renderSankey(data, 'visualization-container');
+    // Render D3 Force Directed Graph
+    renderNetworkGraph(data, 'visualization-container');
 }

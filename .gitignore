@@ -24,3 +24,8 @@ logs
 
 # Environment variables
 .env*
+
+# Ignore PCAP files
+*.pcap
+*.pcapng
+*.cap

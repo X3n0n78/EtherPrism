@@ -1,20 +1,51 @@
+/* Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
 :root {
-  --bg-dark: #0f172a;
-  --bg-card: #1e293b;
+  --bg-dark: #09090b;
+  /* Zinc 950 */
+  --bg-gradient-start: #0f172a;
+  --bg-gradient-end: #020617;
+
+  --glass-bg: rgba(30, 41, 59, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.15);
+
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
-  --accent: #38bdf8;
-  --accent-glow: rgba(56, 189, 248, 0.2);
-  --border: #334155;
+  --text-muted: #64748b;
+
+  --accent-cyan: #22d3ee;
+  --accent-pink: #f472b6;
+  --accent-violet: #a78bfa;
+
+  --shadow-glow: 0 0 20px rgba(34, 211, 238, 0.15);
 }
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background-color: var(--bg-dark);
+  font-family: 'Outfit', sans-serif;
+  background: radial-gradient(circle at top center, var(--bg-gradient-start), var(--bg-gradient-end));
   color: var(--text-primary);
   height: 100vh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Background Mesh Effect */
+body::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(34, 211, 238, 0.03) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(167, 139, 250, 0.03) 0%, transparent 40%);
+  z-index: -1;
+  pointer-events: none;
 }
 
 #app {
@@ -23,69 +54,171 @@ body {
   height: 100%;
 }
 
+/* Header */
 header {
-  padding: 1rem 2rem;
-  border-bottom: 1px solid var(--border);
+  height: 70px;
+  padding: 0 2rem;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  background: rgba(15, 23, 42, 0.8);
-  backdrop-filter: blur(10px);
+  justify-content: space-between;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(15, 23, 42, 0.2);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 10;
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   font-weight: 700;
-  font-size: 1.25rem;
-  color: var(--accent);
-  text-shadow: 0 0 10px var(--accent-glow);
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.logo span {
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.logo-icon {
+  font-size: 1.5rem;
 }
 
 .status-bar {
-  font-size: 0.875rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
   color: var(--text-secondary);
+  background: var(--glass-bg);
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  box-shadow: 0 0 5px var(--text-muted);
+  transition: all 0.3s ease;
+}
+
+.status-dot.active {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 10px var(--accent-cyan);
+}
+
+.status-dot.error {
+  background: var(--accent-pink);
+  box-shadow: 0 0 10px var(--accent-pink);
+}
+
+/* Main Content */
 main {
   flex: 1;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
+/* Drop Zone */
 .drop-zone {
-  width: 600px;
-  height: 300px;
-  border: 2px dashed var(--border);
-  border-radius: 1rem;
+  width: 500px;
+  height: 320px;
+  border-radius: 1.5rem;
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.4));
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  position: relative;
+  overflow: hidden;
+}
+
+.drop-zone::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 1.5rem;
+  padding: 2px;
+  background: linear-gradient(135deg, var(--glass-highlight), transparent);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+  transform: translateY(-5px);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 25px 50px rgba(34, 211, 238, 0.1);
+}
+
+.drop-zone .icon-container {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(34, 211, 238, 0.1);
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
+  margin-bottom: 1.5rem;
+  color: var(--accent-cyan);
+  font-size: 2rem;
   transition: all 0.3s ease;
-  cursor: pointer;
-  background: var(--bg-card);
 }
 
-.drop-zone:hover, .drop-zone.drag-over {
-  border-color: var(--accent);
-  background: var(--accent-glow);
-  transform: scale(1.02);
+.drop-zone:hover .icon-container {
+  background: rgba(34, 211, 238, 0.2);
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.2);
+  transform: scale(1.1);
 }
 
-.drop-zone .icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
+.drop-zone h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
 }
 
 .drop-zone p {
-  margin: 0.25rem 0;
-  font-size: 1.1rem;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin: 0;
 }
 
-.drop-zone .sub {
-  font-size: 0.9rem;
-  color: var(--text-secondary);
+.btn-browse {
+  margin-top: 1.5rem;
+  padding: 0.6rem 1.5rem;
+  background: transparent;
+  border: 1px solid var(--accent-cyan);
+  color: var(--accent-cyan);
+  border-radius: 0.5rem;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-browse:hover {
+  background: rgba(34, 211, 238, 0.1);
+  box-shadow: 0 0 15px rgba(34, 211, 238, 0.2);
 }
 
 .hidden {
@@ -95,11 +228,17 @@ main {
 #visualization-container {
   width: 100%;
   height: 100%;
-  padding: 2rem;
-  box-sizing: border-box;
+  animation: fadeIn 0.8s ease-out;
 }
 
-#sankey-svg {
-  width: 100%;
-  height: 100%;
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
