@@ -1,4 +1,3 @@
-```javascript
 import './style.css'
 
 // Imports
@@ -44,11 +43,11 @@ fileInput.addEventListener('change', (e) => {
 
 async function handleFile(file) {
     console.log('File dropped:', file.name);
-    statusBar.textContent = `Reading ${ file.name }...`;
+    statusBar.textContent = `Reading ${file.name}...`;
 
     try {
         const arrayBuffer = await readFileAsArrayBuffer(file);
-        statusBar.textContent = `Parsing ${ file.name } (${ (file.size / 1024 / 1024).toFixed(2) } MB)...`;
+        statusBar.textContent = `Parsing ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)...`;
 
         // Give UI a moment to update
         await new Promise(r => setTimeout(r, 50));
@@ -56,7 +55,7 @@ async function handleFile(file) {
         const pcap = new PcapParser(arrayBuffer);
         const rawPackets = pcap.parse();
 
-        console.log(`Parsed ${ rawPackets.length } raw packets.Decoding layers...`);
+        console.log(`Parsed ${rawPackets.length} raw packets.Decoding layers...`);
 
         const flows = new Map();
         state.packets = [];
@@ -66,7 +65,7 @@ async function handleFile(file) {
             const decoded = ProtocolParser.parse(raw.data);
             if (decoded.ip) {
                 // Simple Flow Key: Src -> Dst
-                const key = `${ decoded.ip.src } -> ${ decoded.ip.dst } `;
+                const key = `${decoded.ip.src} -> ${decoded.ip.dst} `;
 
                 if (!flows.has(key)) {
                     flows.set(key, {
@@ -86,7 +85,7 @@ async function handleFile(file) {
         });
 
         console.log('Flows found:', flows);
-        statusBar.textContent = `Analysis Complete.Found ${ flows.size } flows from ${ state.packets.length } IP packets.`;
+        statusBar.textContent = `Analysis Complete.Found ${flows.size} flows from ${state.packets.length} IP packets.`;
 
         // Convert flows map to array for D3
         const flowData = Array.from(flows.values());
@@ -112,14 +111,13 @@ function renderVisualization(data) {
     const container = document.getElementById('visualization-container');
     container.classList.remove('hidden');
     document.getElementById('drop-zone').classList.add('hidden');
-    
+
     // Check if we have data
     if (data.length === 0) {
-       container.innerHTML = '<p style="text-align:center; margin-top: 20px;">No IP flows found in this capture.</p>';
-       return;
+        container.innerHTML = '<p style="text-align:center; margin-top: 20px;">No IP flows found in this capture.</p>';
+        return;
     }
 
     // Render D3 Sankey
     renderSankey(data, 'visualization-container');
 }
-```
