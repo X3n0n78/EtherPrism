@@ -1,42 +1,46 @@
-# EtherPrism 💎
+# EtherPrism 💎 v0.6.0-alpha
 
-**EtherPrism** is a modern, web-based network traffic analyzer and visualization tool. Its goal is not deep packet inspection (Wireshark is there for that), but to quickly and visually map communication patterns and "flows".
+> **PCAP Visualizer Studio** - See the network in a new dimension.
 
+**EtherPrism** is a modern, high-performance web-based network traffic analyzer. It visualizes PCAP files purely in the browser using WebAssembly-like performance via Web Workers.
+
+## Status 🚧
+**Current Version:** `v0.6.0-alpha`
+**State:** Beta (Feature Complete for initial roadmap)
 
 ## Features ✨
 
-## Features ✨
+### 🔍 Visualization & Analysis
+- **Advanced Network Graph**: Force-directed graph with semantic icons, glowing links, and physics-based interactions.
+- **Timeline View**: Interactive histogram to filter traffic by time segments.
+- **Deep Protocol Analysis**: Automatic detection of HTTP, DNS, TLS (SNI), and more.
+- **Statistical Dashboard**: 
+    - Protocol Distribution (Pie Chart)
+    - Top Talkers (Bar Chart)
 
-- **🚀 Lightweight & Fast**: No installation required, runs directly in the browser.
-- **🛡️ Privacy First**: PCAP files **never leave your machine**. All processing happens locally in the browser's memory.
-- **Interactive Graph**: Force-Directed graph with physics-based nodes and links.
-- **Timeline Analysis**: Brushable timeline to filter traffic by time.
-- **Deep Inspection**: Click on any node or link to see detailed statistics (Bytes, Packets, Protocol distribution).
-- **Binary Engine**: Custom, pure JavaScript (DataView) based PCAP processing engine.
+### 🚀 Performance & UX
+- **Web Worker Engine**: Multi-threaded parsing to prevent UI freezes with large files.
+- **Instant Filters**: Search by IP, protocol, or time range.
+- **Privacy First**: Files never leave your device.
+- **Professional UI**: Dark mode, glassmorphism design, and fluid animations.
 
 ## Technologies 🛠️
+- **Frontend**: Vanilla JS (ES Modules)
+- **Visualization**: D3.js (Graph, Timeline, Charts)
+- **Engine**: Custom Binary Parser (DataView) + Web Workers
+- **Build**: Vite
 
-- **Frontend**: Vanilla JavaScript (ES Module), Vite
-- **Visualization**: D3.js
-- **Data Handling**: HTML5 FileReader API, ArrayBuffer, DataView
-- **Style**: Modern CSS3 (Variables, Flexbox/Grid)
-
-## Installation and Setup 📦
-
-To start the development environment:
+## Installation 📦
 
 ```bash
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
 
-## Roadmap 🗺️
-
-- [X] Core System (Vite + Parser)
-- [X] PCAP Parser (Ethernet/IP/TCP)
-- [X] Flow Aggregator
-- [X] D3.js Visualization
-- [X] UI Polishing (Dark Mode)
+## Roadmap Completion 🗺️
+- [x] PCAP Parsing Engine
+- [x] Network Graph Visualization
+- [x] Timeline & Filtering
+- [x] Protocol Analysis (L7)
+- [x] Statistical Dashboard
+- [x] Performance Optimization (Web Workers)

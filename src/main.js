@@ -1,24 +1,27 @@
-// Imports
 import './style.css';
-import { PcapParser } from './parser/pcap.js';
-import { ProtocolParser } from './parser/protocol.js';
 import { renderNetworkGraph } from './visualizer/network_graph.js';
 import { renderTimeline } from './visualizer/timeline.js';
+import { renderDashboard } from './visualizer/dashboard.js';
+
+// IMMEDIATE STATUS UPDATE - If this runs, JS is working
+const statusText = document.getElementById('status-text');
+const statusDot = document.getElementById('status-dot');
+if (statusText) statusText.textContent = "Initializing...";
 
 // State
 const state = {
     file: null,
-    packets: [], // Array of { ...raw, ...decoded }
-    flows: new Map(), // Key: "SrcIP->DstIP", Value: { bytes, count, packets: [] }
+    packets: [],
+    flows: new Map(),
     isProcessing: false,
-    selected: null // { type: 'node'|'link', data: ... }
+    selected: null,
+    hiddenNodes: new Set(),
+    hostnames: new Map()
 };
 
 // Elements
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
-const statusText = document.getElementById('status-text');
-const statusDot = document.getElementById('status-dot');
 const browseBtn = document.querySelector('.btn-browse');
 
 // New UI Elements
@@ -32,41 +35,73 @@ const btnClosePanel = document.getElementById('btn-close-panel');
 const timelineContainer = document.getElementById('timeline-container');
 const visualizationContainer = document.getElementById('visualization-container');
 
-// Event Listeners
+// --- EVENT LISTENERS ---
+
+// Global Error Handler
+window.onerror = function (message, source, lineno, colno, error) {
+    console.error('Global Error:', error);
+    if (statusText) statusText.textContent = `Error: ${message}`;
+    if (statusDot) statusDot.className = 'status-dot error';
+};
+
+// Global Drag Prevention
+window.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
+window.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); });
+
+// Drop Zone Events
+if (dropZone) {
+    dropZone.addEventListener('click', (e) => {
+        if (e.target !== browseBtn) fileInput.click();
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('drag-over');
+        if (statusText) statusText.textContent = "Drop File Here";
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+        if (statusText) statusText.textContent = "System Active";
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+
+        if (e.dataTransfer.files.length) {
+            handleFile(e.dataTransfer.files[0]);
+        }
+    });
+}
+
+// File Input
+if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            handleFile(e.target.files[0]);
+            fileInput.value = '';
+        }
+    });
+}
+
+// Buttons
 if (browseBtn) browseBtn.addEventListener('click', () => fileInput.click());
 if (btnClosePanel) btnClosePanel.addEventListener('click', closeSidePanel);
-
-dropZone.addEventListener('click', (e) => {
-    if (e.target !== browseBtn) fileInput.click();
-});
-
-dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-over');
-    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-});
-
-fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length) handleFile(e.target.files[0]);
-});
-
 if (btnReset) btnReset.addEventListener('click', resetApp);
 if (btnExport) btnExport.addEventListener('click', exportData);
 if (searchInput) {
     searchInput.addEventListener('input', (e) => {
         const query = e.target.value.trim();
         if (!query) return;
-
-        // Find matching node
-        // Simple search: find first node starting with query
         const match = Array.from(state.flows.values()).find(f =>
             f.source.includes(query) || f.target.includes(query)
         );
-
         if (match) {
-            // Determine which IP matched
             const ip = match.source.includes(query) ? match.source : match.target;
             handleSelection('node', { id: ip });
         }
@@ -74,105 +109,208 @@ if (searchInput) {
 }
 
 
-// Logic
+// --- LOGIC ---
+
 async function handleFile(file) {
-    console.log('File dropped:', file.name);
-    statusText.textContent = `Reading...`;
-    statusDot.classList.add('active');
+    console.log('Handling file:', file.name);
+    state.isProcessing = true;
+    if (statusText) statusText.textContent = `Reading...`;
+    if (statusDot) statusDot.className = 'status-dot active';
 
     try {
         const arrayBuffer = await readFileAsArrayBuffer(file);
-        statusText.textContent = `Parsing ${(file.size / 1024 / 1024).toFixed(2)} MB...`;
 
-        // Yield to UI
-        await new Promise(r => setTimeout(r, 50));
+        // Try Dynamic Worker Import
+        try {
+            // We use a relative path URL for the worker. 
+            // Note: In Vite dev, this usually works. In some builds it might need adjustment.
+            const workerUrl = new URL('./worker/pcap.worker.js', import.meta.url);
+            const worker = new Worker(workerUrl, { type: 'module' });
+
+            worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
+
+            worker.onmessage = (e) => {
+                const { type, packets, message, error } = e.data;
+
+                if (type === 'status' || type === 'progress') {
+                    statusText.textContent = message;
+                } else if (type === 'complete') {
+                    processPackets(packets);
+                    worker.terminate();
+                } else if (type === 'error') {
+                    console.warn('Worker error:', error);
+                    worker.terminate();
+                    handleFileSynchronous(file);
+                }
+            };
+
+            worker.onerror = (err) => {
+                console.error('Worker startup error:', err);
+                worker.terminate();
+                handleFileSynchronous(file);
+            };
+
+        } catch (workerErr) {
+            console.warn('Worker init failed:', workerErr);
+            handleFileSynchronous(file);
+        }
+
+    } catch (err) {
+        console.error(err);
+        if (statusText) statusText.textContent = 'Error: ' + err.message;
+        if (statusDot) statusDot.className = 'status-dot error';
+        state.isProcessing = false;
+    }
+}
+
+async function handleFileSynchronous(file) {
+    console.log('Switching to Synchronous Mode');
+    if (statusText) statusText.textContent = `Parsing (Sync Mode)...`;
+
+    // Helper to read file again
+    const arrayBuffer = await readFileAsArrayBuffer(file);
+
+    try {
+        // Dynamic import logic
+        const { PcapParser } = await import('./parser/pcap.js');
+        const { ProtocolParser } = await import('./parser/protocol.js');
 
         const pcap = new PcapParser(arrayBuffer);
         const rawPackets = pcap.parse();
 
-        // Initialize state
-        const flows = new Map();
-        state.packets = [];
-
-        // Analysis Loop
-        rawPackets.forEach(raw => {
+        const packets = rawPackets.map(raw => {
             const decoded = ProtocolParser.parse(raw.data);
-
-            // Enrich packet object
-            const packetObj = { ...raw, ...decoded };
-            state.packets.push(packetObj);
-
-            if (decoded.ip) {
-                const key = `${decoded.ip.src}->${decoded.ip.dst}`;
-
-                if (!flows.has(key)) {
-                    flows.set(key, {
-                        source: decoded.ip.src,
-                        target: decoded.ip.dst,
-                        value: 0,
-                        count: 0,
-                        protocolCounts: {},
-                        packets: [] // Store reference to packets for detail view
-                    });
-                }
-
-                const flow = flows.get(key);
-                flow.value += raw.length;
-                flow.count += 1;
-                flow.packets.push(packetObj); // keep track
-
-                // Protocol Stats
-                const proto = decoded.tcp ? 'TCP' : (decoded.udp ? 'UDP' : 'Other');
-                flow.protocolCounts[proto] = (flow.protocolCounts[proto] || 0) + 1;
-            }
+            return { ...raw, ...decoded };
         });
 
-        state.flows = flows;
+        processPackets(packets);
 
-        statusText.textContent = `Analysis Complete. Flows: ${flows.size} | Packets: ${state.packets.length}`;
-        statusDot.classList.remove('active');
-
-        // Render Everything
-        renderApp();
-
-    } catch (err) {
-        console.error(err);
-        statusText.textContent = 'Error: ' + err.message;
-        statusDot.className = 'status-dot error';
+    } catch (e) {
+        if (statusText) statusText.textContent = 'Sync Parse Error: ' + e.message;
+        if (statusDot) statusDot.className = 'status-dot error';
+        state.isProcessing = false;
+        console.error(e);
     }
+}
+
+function processPackets(packets) {
+    state.packets = packets;
+    state.flows = new Map();
+    state.hostnames = new Map();
+    state.hiddenNodes = new Set();
+
+    packets.forEach(packet => {
+        if (packet.ip) {
+            const key = `${packet.ip.src}->${packet.ip.dst}`;
+
+            if (!state.flows.has(key)) {
+                state.flows.set(key, {
+                    source: packet.ip.src,
+                    target: packet.ip.dst,
+                    value: 0,
+                    count: 0,
+                    protocolCounts: {},
+                    packets: []
+                });
+            }
+
+            const flow = state.flows.get(key);
+            flow.value += packet.length;
+            flow.count += 1;
+            flow.packets.push(packet);
+
+            const proto = packet.tcp ? 'TCP' : (packet.udp ? 'UDP' : 'Other');
+            flow.protocolCounts[proto] = (flow.protocolCounts[proto] || 0) + 1;
+
+            if (packet.app) {
+                if (!flow.appInfo) flow.appInfo = new Set();
+                flow.appInfo.add(packet.app.info);
+                flow.appType = packet.app.type;
+
+                if (packet.app.type === 'TLS' && packet.app.info.startsWith('SNI: ')) {
+                    const hostname = packet.app.info.replace('SNI: ', '');
+                    state.hostnames.set(packet.ip.dst, hostname);
+                }
+            }
+        }
+    });
+
+    state.isProcessing = false;
+    statusText.textContent = `Analysis Complete. Flows: ${state.flows.size}`;
+    statusDot.className = 'status-dot';
+
+    renderApp();
 }
 
 function renderApp() {
     dropZone.classList.add('hidden');
     visualizationContainer.classList.remove('hidden');
 
-    // Show new UI
     if (controls) controls.classList.remove('hidden');
     if (timelineContainer) {
         timelineContainer.classList.remove('hidden');
-        // Render timeline only once or when packets change (no re-render on brush to avoid loops)
-        // We pass the global packets here
         renderTimeline(state.packets, 'timeline-container', handleTimelineBrush);
     }
 
-    // Determine flows to show (filtered or all)
     const activeFlows = state.filteredFlows || state.flows;
-    const flowData = Array.from(activeFlows.values());
+    let flowData = Array.from(activeFlows.values());
+
+    if (state.hiddenNodes && state.hiddenNodes.size > 0) {
+        flowData = flowData.filter(f => !state.hiddenNodes.has(f.source) && !state.hiddenNodes.has(f.target));
+    }
+
+    updateResetButton();
 
     if (flowData.length === 0) {
         visualizationContainer.innerHTML = '<p class="empty-msg">No flows in selection.</p>';
         return;
     }
 
-    // Render Graph with selection callback
-    renderNetworkGraph(flowData, 'visualization-container', handleSelection);
+    renderNetworkGraph(flowData, 'visualization-container', handleSelection, handleHideNode);
 }
 
-// Debounce handle to prevent excessive re-renders during drag
+function updateResetButton() {
+    let resetBtn = document.getElementById('reset-visibility-btn');
+    if (state.hiddenNodes && state.hiddenNodes.size > 0) {
+        if (!resetBtn) {
+            resetBtn = document.createElement('button');
+            resetBtn.id = 'reset-visibility-btn';
+            resetBtn.className = 'control-btn';
+            resetBtn.title = "Restore hidden nodes";
+            resetBtn.onclick = resetHiddenNodes;
+            controls.appendChild(resetBtn);
+        }
+        resetBtn.textContent = `Show Hidden (${state.hiddenNodes.size})`;
+        resetBtn.style.display = 'inline-flex';
+    } else {
+        if (resetBtn) resetBtn.style.display = 'none';
+    }
+
+    let statsBtn = document.getElementById('stats-btn');
+    if (!statsBtn) {
+        statsBtn = document.createElement('button');
+        statsBtn.id = 'stats-btn';
+        statsBtn.className = 'control-btn';
+        statsBtn.textContent = '📊 Statistics';
+        statsBtn.onclick = () => renderDashboard(state.packets, 'dashboard-container', () => { });
+        controls.appendChild(statsBtn);
+    }
+}
+
+function resetHiddenNodes() {
+    state.hiddenNodes.clear();
+    renderApp();
+}
+
+function handleHideNode(nodeId) {
+    if (!state.hiddenNodes) state.hiddenNodes = new Set();
+    state.hiddenNodes.add(nodeId);
+    renderApp();
+}
+
 let brushTimeout;
 function handleTimelineBrush(start, end) {
     if (brushTimeout) clearTimeout(brushTimeout);
-
     brushTimeout = setTimeout(() => {
         applyTimeFilter(start, end);
     }, 100);
@@ -180,15 +318,14 @@ function handleTimelineBrush(start, end) {
 
 function applyTimeFilter(start, end) {
     if (start === null || end === null) {
-        state.filteredFlows = null; // Clear filter
-        renderAppFiltered(); // Optimized re-render
+        state.filteredFlows = null;
+        renderAppFiltered();
         return;
     }
 
     const filteredPackets = state.packets.filter(p => p.timestamp >= start && p.timestamp <= end);
-
-    // Re-aggregate flows from filtered packets
     const newFlows = new Map();
+
     filteredPackets.forEach(p => {
         if (p.ip) {
             const key = `${p.ip.src}->${p.ip.dst}`;
@@ -217,15 +354,20 @@ function applyTimeFilter(start, end) {
 }
 
 function renderAppFiltered() {
-    // Only update the graph, don't re-render timeline (it causes brush reset)
     const activeFlows = state.filteredFlows || state.flows;
-    const flowData = Array.from(activeFlows.values());
+    let flowData = Array.from(activeFlows.values());
+
+    if (state.hiddenNodes && state.hiddenNodes.size > 0) {
+        flowData = flowData.filter(f => !state.hiddenNodes.has(f.source) && !state.hiddenNodes.has(f.target));
+    }
+
+    updateResetButton();
 
     if (flowData.length === 0) {
         visualizationContainer.innerHTML = '<p class="empty-msg">No flows in selection.</p>';
         return;
     }
-    renderNetworkGraph(flowData, 'visualization-container', handleSelection);
+    renderNetworkGraph(flowData, 'visualization-container', handleSelection, handleHideNode);
 }
 
 function handleSelection(type, data) {
@@ -233,7 +375,6 @@ function handleSelection(type, data) {
         closeSidePanel();
         return;
     }
-
     state.selected = { type, data };
     showSidePanel(type, data);
 }
@@ -243,14 +384,14 @@ function showSidePanel(type, data) {
 
     sidePanel.classList.remove('hidden');
     const title = document.getElementById('panel-title');
-
     let content = '';
 
     if (type === 'node') {
         const ip = data.id;
         title.textContent = `Host: ${ip}`;
+        const hostname = state.hostnames.get(ip) || 'Unresolved';
+        const hostnameColor = hostname === 'Unresolved' ? 'var(--text-muted)' : 'var(--accent-cyan)';
 
-        // Calculate detailed stats for this node (ingress/egress)
         let totalSent = 0;
         let totalRecv = 0;
         let sentPackets = 0;
@@ -268,6 +409,8 @@ function showSidePanel(type, data) {
         });
 
         content = `
+            <div class="panel-stat"><label>Hostname</label><span style="color:${hostnameColor}">${hostname}</span></div>
+            <hr style="border-color:rgba(255,255,255,0.1); margin: 1rem 0;">
             <div class="panel-stat"><label>Total Traffic</label><span>${formatBytes(totalSent + totalRecv)}</span></div>
             <div class="panel-stat"><label>Sent</label><span>${formatBytes(totalSent)} (${sentPackets} pkts)</span></div>
             <div class="panel-stat"><label>Received</label><span>${formatBytes(totalRecv)} (${recvPackets} pkts)</span></div>
@@ -277,7 +420,7 @@ function showSidePanel(type, data) {
     } else if (type === 'link') {
         title.textContent = `Flow Details`;
         const flow = state.flows.get(`${data.source.id}->${data.target.id}`) ||
-            state.flows.get(`${data.source}->${data.target}`) || data; // Fallback
+            state.flows.get(`${data.source}->${data.target}`) || data;
 
         content = `
             <div class="panel-stat"><label>Source</label><span>${flow.source?.id || flow.source}</span></div>
@@ -286,10 +429,23 @@ function showSidePanel(type, data) {
             <div class="panel-stat"><label>Packets</label><span>${flow.count}</span></div>
             <div class="panel-stat"><label>TCP</label><span>${flow.protocolCounts?.TCP || 0}</span></div>
             <div class="panel-stat"><label>UDP</label><span>${flow.protocolCounts?.UDP || 0}</span></div>
+            ${renderAppInfo(flow)}
         `;
     }
-
     panelContent.innerHTML = content;
+}
+
+function renderAppInfo(flow) {
+    if (!flow.appInfo || flow.appInfo.size === 0) return '';
+    const items = Array.from(flow.appInfo).slice(0, 5);
+    const listHtml = items.map(item => `<div style="font-size:0.8rem; margin-top:4px; color:var(--text-secondary); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">• ${item}</div>`).join('');
+
+    return `
+        <hr style="border-color:rgba(255,255,255,0.1); margin: 1rem 0;">
+        <div style="color:var(--accent-primary); font-size:0.8rem; margin-bottom:0.5rem;">${flow.appType || 'Application'} Info</div>
+        ${listHtml}
+        ${flow.appInfo.size > 5 ? `<div style="font-size:0.7rem; color:var(--text-muted);">+ ${flow.appInfo.size - 5} more</div>` : ''}
+    `;
 }
 
 function closeSidePanel() {
@@ -300,8 +456,12 @@ function closeSidePanel() {
 function resetApp() {
     state.file = null;
     state.packets = [];
-    state.flows.clear();
+    state.flows = new Map();
     state.isProcessing = false;
+    state.selected = null;
+    state.filteredFlows = null;
+    state.hiddenNodes = new Set();
+    state.hostnames = new Map();
 
     visualizationContainer.innerHTML = '';
     visualizationContainer.classList.add('hidden');
@@ -312,7 +472,7 @@ function resetApp() {
 
     dropZone.classList.remove('hidden');
 
-    statusText.textContent = 'Ready';
+    statusText.textContent = 'System Active';
     statusDot.className = 'status-dot';
     fileInput.value = '';
 }
@@ -349,3 +509,7 @@ function formatBytes(bytes, decimals = 2) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
+
+// FINAL READY SIGNAL
+console.log("Main JS Loaded Successfully");
+if (statusText) statusText.textContent = "System Active";
