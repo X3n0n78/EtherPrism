@@ -11,27 +11,47 @@ export function renderPacketList(packets, containerId, allPackets = []) {
 
     if (!tbody || container.innerHTML === '') {
         container.innerHTML = `
-            <div class="packet-list-container">
+            <div class="packet-list-container" style="display:flex; flex-direction:column; height:100%;">
                 <div class="packet-list-header">
                     <div style="font-weight:600; color:var(--text-primary)">Packet Capture</div>
                     <div class="packet-count" style="color:var(--text-secondary)">${packets.length.toLocaleString()} events</div>
                 </div>
-                <div class="packet-table-wrapper" style="overflow-y:auto; flex:1; position:relative;">
-                    <table class="packet-table" style="position:absolute; top:0; left:0; width:100%;">
+                
+                <!-- Fixed Table Header -->
+                <div class="packet-table-header-row" style="padding-right: 6px; background: var(--bg-header); border-bottom: 1px solid var(--border-subtle); z-index: 10;">
+                     <table style="width:100%; table-layout: fixed; border-collapse: collapse;">
                         <thead>
-                            <tr style="height:32px;"> 
-                                <th style="width:60px">No.</th>
-                                <th style="width:100px">Time</th>
-                                <th style="width:140px">Source</th>
-                                <th style="width:140px">Destination</th>
-                                <th style="width:80px">Proto</th>
-                                <th style="width:80px">Len</th>
-                                <th>Info</th>
+                            <tr style="height:36px; color:var(--text-secondary); text-align:left; font-size: 0.8rem;"> 
+                                <th style="width:60px; padding:0 12px; font-weight:600; color:var(--text-primary);">No.</th>
+                                <th style="width:140px; padding:0 12px; font-weight:600; color:var(--text-primary);">Time</th>
+                                <th style="width:200px; padding:0 12px; font-weight:600; color:var(--text-primary);">Source</th>
+                                <th style="width:200px; padding:0 12px; font-weight:600; color:var(--text-primary);">Destination</th>
+                                <th style="width:80px; padding:0 12px; font-weight:600; color:var(--text-primary);">Proto</th>
+                                <th style="width:80px; padding:0 12px; font-weight:600; color:var(--text-primary);">Len</th>
+                                <th style="padding:0 12px; font-weight:600; color:var(--text-primary);">Info</th>
+                            </tr>
+                        </thead>
+                     </table>
+                </div>
+
+                <!-- Scrollable Body -->
+                <div class="packet-table-wrapper" style="overflow-y:auto; flex:1; position:relative;">
+                    <div id="virtual-scroller-spacer" style="width:1px;"></div>
+                    <table class="packet-table" style="position:absolute; top:0; left:0; width:100%; table-layout: fixed; border-collapse: collapse;">
+                        <!-- Hidden header for sizing alignment - Ensures columns match visual header -->
+                        <thead style="visibility:hidden; height:0; line-height:0; pointer-events:none;">
+                             <tr style="height:0;"> 
+                                <th style="width:60px; padding:0 8px; border:none; height:0;"></th>
+                                <th style="width:140px; padding:0 8px; border:none; height:0;"></th>
+                                <th style="width:200px; padding:0 8px; border:none; height:0;"></th>
+                                <th style="width:200px; padding:0 8px; border:none; height:0;"></th>
+                                <th style="width:80px; padding:0 8px; border:none; height:0;"></th>
+                                <th style="width:80px; padding:0 8px; border:none; height:0;"></th>
+                                <th style="padding:0 8px; border:none; height:0;"></th>
                             </tr>
                         </thead>
                         <tbody id="packet-table-body"></tbody>
                     </table>
-                    <div id="virtual-scroller-spacer" style="width:1px;"></div>
                 </div>
             </div>
         `;
@@ -47,7 +67,7 @@ export function renderPacketList(packets, containerId, allPackets = []) {
         // Set spacer height
         const rowHeight = 32; // Approx px per row
         const totalHeight = packets.length * rowHeight;
-        document.getElementById('virtual-scroller-spacer').style.height = `${totalHeight + 32}px`; // + header
+        document.getElementById('virtual-scroller-spacer').style.height = `${totalHeight}px`;
 
         renderVirtualRows(packets, tbody, scrollWrapper);
     } else {
@@ -57,7 +77,7 @@ export function renderPacketList(packets, containerId, allPackets = []) {
 
         const rowHeight = 32;
         const totalHeight = packets.length * rowHeight;
-        document.getElementById('virtual-scroller-spacer').style.height = `${totalHeight + 32}px`;
+        document.getElementById('virtual-scroller-spacer').style.height = `${totalHeight}px`;
 
         // If packets changed significantly, reset scroll? 
         // For now, keep scroll but re-render
@@ -80,36 +100,12 @@ function renderVirtualRows(packets, tbody, scrollWrapper) {
 
     // Positioning
     const topOffset = startIdx * rowHeight;
-    // We can translate the TBODY or use margin
-    // Better: use absolute positioning for TRs? Or translate tbody?
-    // Easy: Translate Tbody and clear/fill it.
 
-    // But we have sticky headers.
-    // The spacer defines the scroll height. The table is absolute 0,0.
-    // We should move the table down to topOffset.
     const table = tbody.parentElement;
-    // Header height is ~32px.
-    // Actually, simple virtual scrolling pattern:
-    // Spacer provides height.
-    // Table is rendered at topOffset.
+    table.style.transform = `translateY(${topOffset}px)`;
 
     // Reset tbody
     tbody.innerHTML = '';
-
-    // Transform table to visually be at correct scroll position
-    // Warning: TH is sticky, so changing table transform might break sticky.
-    // Standard approach: Padding-top on table?
-
-    // Let's rely on standard flow.
-    // The spacer `virtual-scroller-spacer` is a sibling of `table`.
-    // Wait, typical structure:
-    // Wrapper (overflow:auto)
-    //   -> Inner Container (Height = total)
-    //      -> Visible Item Container (transform: translateY(startIdx * h))
-
-    // Adaptation:
-    // The spacer is already there. The table is absolute.
-    table.style.transform = `translateY(${topOffset}px)`;
 
     const fragment = document.createDocumentFragment();
 
@@ -123,11 +119,11 @@ function renderVirtualRows(packets, tbody, scrollWrapper) {
 
         // Proto Class
         let proto = 'ETH';
-        let protoClass = 'default';
-        if (packet.tcp) { proto = 'TCP'; protoClass = 'proto-tcp'; }
-        else if (packet.udp) { proto = 'UDP'; protoClass = 'proto-udp'; }
-        else if (packet.icmp) { proto = 'ICMP'; protoClass = 'proto-icmp'; }
-        else if (packet.app) { proto = packet.app.type; }
+        let protoClass = 'badge-secondary'; // default
+        if (packet.tcp) { proto = 'TCP'; protoClass = 'badge-tcp'; }
+        else if (packet.udp) { proto = 'UDP'; protoClass = 'badge-udp'; }
+        else if (packet.icmp) { proto = 'ICMP'; protoClass = 'badge-severe'; }
+        else if (packet.app) { proto = packet.app.type; protoClass = 'badge-tcp'; }
 
         // Info
         let info = '';
@@ -146,14 +142,16 @@ function renderVirtualRows(packets, tbody, scrollWrapper) {
         // Truncate info
         if (info.length > 80) info = info.substring(0, 80) + '...';
 
+        const cellStyle = "white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0;";
+
         tr.innerHTML = `
             <td>${i + 1}</td>
             <td>${(packet.timestamp / 1000000).toFixed(6)}</td>
-            <td>${packet.ip?.src || 'L2'}</td>
-            <td>${packet.ip?.dst || 'L2'}</td>
-            <td><span class="badge-proto ${protoClass}">${proto}</span></td>
-            <td>${packet.length}</td>
-            <td>${escapeHtml(info)}</td>
+            <td style="${cellStyle}" title="${packet.ip?.src || 'L2'}">${packet.ip?.src || 'L2'}</td>
+            <td style="${cellStyle}" title="${packet.ip?.dst || 'L2'}">${packet.ip?.dst || 'L2'}</td>
+            <td><span class="badge ${protoClass}">${proto}</span></td>
+            <td>${packet.length ?? packet.len ?? 0}</td>
+            <td style="${cellStyle}" title="${escapeHtml(info)}">${escapeHtml(info)}</td>
         `;
 
         tr.onclick = () => {

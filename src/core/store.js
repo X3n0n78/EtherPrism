@@ -104,7 +104,8 @@ class Store {
                     });
                 }
                 const flow = this.state.flows.get(key);
-                flow.value += packet.length;
+                const bytes = packet.length || packet.len || 0;
+                flow.value += bytes;
                 flow.count += 1;
                 flow.packets.push(packet);
 

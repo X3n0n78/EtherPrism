@@ -5,6 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EtherPrism Nexus</title>
+  <link rel="stylesheet" href="./src/style.css">
 </head>
 
 <body>
@@ -18,33 +19,51 @@
         </div>
       </div>
       <div class="actions">
-        <div class="view-toggles"
-          style="display:inline-flex; background:rgba(255,255,255,0.05); padding:2px; border-radius:6px; margin-right:1rem; border:1px solid var(--border-neon);">
-          <button class="btn-neon active" id="btn-view-graph"
-            style="margin:0; border:none; background:rgba(34, 211, 238, 0.1);">Graph</button>
-          <button class="btn-neon" id="btn-view-list" style="margin:0; border:none; opacity:0.7;">List</button>
+        <div class="actions">
+          <button class="btn-tool" id="btn-import">
+            <span class="icon">📥</span> Import PCAP
+          </button>
+          <button class="btn-tool" id="btn-settings">
+            <span class="icon">⚙️</span> Settings
+          </button>
         </div>
-        <button class="btn-neon" id="btn-import">Import PCAP</button>
-        <button class="btn-neon" id="btn-settings">Settings</button>
-      </div>
-      <!-- Hidden Input -->
-      <input type="file" id="file-input" accept=".pcap,.pcapng,.cap" style="display:none" />
+        <!-- Hidden Input -->
+        <input type="file" id="file-input" accept=".pcap,.pcapng,.cap" style="display:none" />
     </header>
 
-    <!-- Sidebar -->
+    <!-- Sidebar Navigation -->
     <aside id="sidebar">
-      <div class="glass-panel">
-        <h3 style="margin:0 0 1rem 0; font-size:0.8rem; color:var(--text-scifi)">FILTERS</h3>
-        <input type="text" id="search-input" placeholder="Search IP / Protocol..."
-          style="width:100%; box-sizing:border-box; background:rgba(0,0,0,0.3); border:1px solid var(--border-neon); color:white; padding:8px; border-radius:4px; outline:none;">
+      <!-- Nav Menu -->
+      <nav class="nav-menu">
+        <button class="nav-item active" id="btn-view-graph">
+          <span class="icon">🕸️</span> Graph
+        </button>
+        <button class="nav-item" id="btn-view-list">
+          <span class="icon">📋</span> List
+        </button>
+        <button class="nav-item" id="btn-view-map">
+          <span class="icon">🌍</span> Map
+        </button>
+      </nav>
+
+      <div class="separator"></div>
+
+      <!-- Filters Section -->
+      <div class="sidebar-section">
+        <h3 class="section-title">FILTERS</h3>
+        <div class="search-box">
+          <i class="search-icon">🔍</i>
+          <input type="text" id="search-input" placeholder="Search IP / Protocol...">
+        </div>
       </div>
 
-      <div class="glass-panel" style="flex:1; display:flex; flex-direction:column;">
-        <h3 style="margin:0 0 1rem 0; font-size:0.8rem; color:var(--text-scifi)">STATISTICS</h3>
+      <div class="separator"></div>
+
+      <!-- Stats Section -->
+      <div class="sidebar-section flexible">
+        <h3 class="section-title">LIVE STATISTICS</h3>
         <div id="sidebar-stats">
-          <!-- Dynamic Stats -->
-          <div style="font-size:0.8rem; color:var(--text-secondary); text-align:center; padding:2rem 0;">No Data Loaded
-          </div>
+          <div class="empty-state">No Capture Data</div>
         </div>
       </div>
     </aside>
@@ -56,14 +75,14 @@
           <div class="drop-icon">❖</div>
           <h2 style="color:white; margin:0 0 0.5rem 0;">Initiate Analysis</h2>
           <p style="color:var(--text-secondary); margin-bottom: 2rem;">Drag & Drop PCAP file or use Import</p>
-          <button class="btn-primary" onclick="document.getElementById('file-input').click()">Browse Files</button>
+          <button id="btn-browse-main" class="btn-primary">Browse Files</button>
         </div>
       </div>
       <div id="visualization-container" style="width:100%; height:100%;"></div>
     </main>
 
     <!-- Right Details Panel -->
-    <aside id="details-panel" class="collapsed">
+    <aside id="details-panel">
       <div
         style="padding:1rem; border-bottom:1px solid var(--border-neon); display:flex; justify-content:space-between; align-items:center;">
         <h3 style="margin:0; font-size:0.9rem; color:var(--accent-cyan)">DETAILS</h3>
@@ -78,6 +97,46 @@
     <section id="timeline-view">
       <div id="timeline-container" style="width:100%; height:100%;"></div>
     </section>
+  </div>
+
+  <!-- Stream Analysis Modal -->
+  <div id="stream-modal" class="modal-overlay hidden">
+    <div class="glass-panel"
+      style="width:90%; height:90%; display:flex; flex-direction:column; background:var(--bg-panel); border:1px solid rgba(34,211,238,0.3); box-shadow:0 0 40px rgba(0,0,0,0.5);">
+
+      <!-- Modal Header -->
+      <div
+        style="padding:1rem; border-bottom:1px solid var(--border-subtle); display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.2);">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="font-size:1.5rem;">🕵️</span>
+          <div>
+            <h2 style="margin:0; font-size:1.1rem; color:var(--text-primary); letter-spacing:0.05em;">TCP STREAM
+              ANALYSIS</h2>
+            <div style="font-size:0.8rem; color:var(--text-secondary);">Deep Packet Inspection & Reassembly</div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:12px;">
+          <div style="display:flex; background:rgba(255,255,255,0.05); border-radius:var(--radius-md); padding:2px;">
+            <button id="btn-tab-ascii" class="btn-neon active"
+              style="margin:0; border:none; border-radius:4px;">ASCII</button>
+            <button id="btn-tab-html" class="btn-neon" style="margin:0; border:none; border-radius:4px;">HTML</button>
+          </div>
+          <button id="btn-close-stream" class="btn-neon"
+            style="border-color:var(--accent-danger); color:var(--accent-danger);">CLOSE</button>
+        </div>
+      </div>
+
+      <!-- Modal Body -->
+      <div style="flex:1; display:grid; grid-template-rows: 200px 1fr; overflow:hidden;">
+        <div id="stevens-graph-container"
+          style="border-bottom:1px solid var(--border-subtle); position:relative; background:var(--bg-app);"></div>
+        <div id="stream-content"
+          style="padding:1.5rem; overflow:auto; font-family:var(--font-mono); font-size:0.9rem; line-height:1.6; color:var(--text-primary); background:var(--bg-card);">
+          <div style="opacity:0.5; text-align:center; margin-top:50px;">Select a TCP packet to view stream data...</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Scripts -->

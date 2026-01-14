@@ -131,15 +131,58 @@ export function renderNetworkGraph(flows, containerId, onSelection, onHideNode) 
         .style('font-size', '10px')
         .style('opacity', 0.8);
 
+    // Focus / Neighbor Highlighting
+    function focusNode(d) {
+        const connectedNodeIds = new Set();
+        connectedNodeIds.add(d.id);
+
+        // Find connected links and nodes
+        const connectedLinks = links.filter(l => {
+            if (l.source.id === d.id) {
+                connectedNodeIds.add(l.target.id);
+                return true;
+            }
+            if (l.target.id === d.id) {
+                connectedNodeIds.add(l.source.id);
+                return true;
+            }
+            return false;
+        });
+
+        // Dim everything
+        node.style('opacity', 0.1);
+        link.style('opacity', 0.05);
+
+        // Highlight connected
+        node.filter(n => connectedNodeIds.has(n.id))
+            .style('opacity', 1)
+            .selectAll('circle')
+            .attr('stroke', '#fff')
+            .attr('stroke-width', n => n.id === d.id ? 4 : 2); // Extra bold for selected
+
+        link.filter(l => connectedLinks.includes(l))
+            .style('opacity', 0.8)
+            .attr('stroke', 'var(--accent-cyan)')
+            .attr('stroke-width', 2);
+    }
+
+    function resetFocus() {
+        node.style('opacity', 1);
+        link.style('opacity', 0.6)
+            .attr('stroke', d => getLinkColor(d.protocol))
+            .attr('stroke-width', d => Math.min(Math.sqrt(d.value) / 100, 2) + 0.5);
+
+        node.selectAll('circle')
+            .attr('stroke', d => getNodeColor(d.type))
+            .attr('stroke-width', 2);
+    }
+
     // Interactions
     node.on('click', (event, d) => {
         event.stopPropagation();
         if (onSelection) onSelection('node', d);
         hideContextMenu();
-
-        // Highlight effect
-        node.selectAll('circle').attr('stroke-width', 2);
-        d3.select(event.currentTarget).select('circle').attr('stroke-width', 4);
+        focusNode(d);
     });
 
     node.on('contextmenu', (event, d) => {
@@ -150,7 +193,7 @@ export function renderNetworkGraph(flows, containerId, onSelection, onHideNode) 
     svg.on('click', () => {
         if (onSelection) onSelection(null, null);
         hideContextMenu();
-        node.selectAll('circle').attr('stroke-width', 2);
+        resetFocus();
     });
 
     // Zoom

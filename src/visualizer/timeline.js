@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 
-export function renderTimeline(packets, containerId, onBrush) {
+export function renderTimeline(packets, containerId, onBrush, currentStartTime = null, currentEndTime = null) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
@@ -15,10 +15,18 @@ export function renderTimeline(packets, containerId, onBrush) {
     const height = container.clientHeight - margin.top - margin.bottom;
 
     // 1. Bin data
-    const startTime = packets[0].timestamp;
-    const endTime = packets[packets.length - 1].timestamp;
-    const timeSpan = endTime - startTime;
-    if (timeSpan <= 0) return;
+    // Filter invalid timestamps (e.g. 0 or very old junk) making the scale useless
+    // Sort
+    const validPackets = packets.filter(p => p.timestamp > 946684800); // > Year 2000 (roughly) - helps filtering nulls
+    if (validPackets.length === 0) return;
+
+    const sortedPackets = validPackets.sort((a, b) => a.timestamp - b.timestamp);
+    const startTime = sortedPackets[0].timestamp;
+    const endTime = sortedPackets[sortedPackets.length - 1].timestamp;
+
+    // Ensure min timespan for render
+    let timeSpan = endTime - startTime;
+    if (timeSpan <= 0.001) timeSpan = 1; // Default to 1 second if single packet
 
     const binCount = Math.min(120, Math.max(40, width / 10)); // Responsive bin count
     const binSize = timeSpan / binCount;
@@ -27,9 +35,9 @@ export function renderTimeline(packets, containerId, onBrush) {
     const binTimes = [];
     for (let i = 0; i < bins.length; i++) binTimes.push(startTime + (i * binSize));
 
-    packets.forEach(p => {
+    sortedPackets.forEach(p => {
         const binIndex = Math.min(Math.floor((p.timestamp - startTime) / binSize), binCount - 1);
-        bins[binIndex] += p.length;
+        if (bins[binIndex] !== undefined) bins[binIndex] += (p.length || p.len || 0);
     });
 
     const maxBytes = Math.max(...bins);
@@ -89,8 +97,8 @@ export function renderTimeline(packets, containerId, onBrush) {
         .join('rect')
         .attr('x', (d, i) => xScale(new Date(binTimes[i] * 1000)))
         .attr('y', d => yScale(d))
-        .attr('width', Math.max(1, (width / binCount) - 2)) // Gap between bars
-        .attr('height', d => height - yScale(d))
+        .attr('width', Math.max(1, (width / binCount) - 2))
+        .attr('height', d => Math.max(2, height - yScale(d))) // Ensure at least 2px height
         .attr('fill', 'var(--accent-cyan)')
         .attr('opacity', 0.6)
         .on("mouseover", function () { d3.select(this).attr("opacity", 1).attr("fill", "var(--accent-magenta)"); })
@@ -101,6 +109,9 @@ export function renderTimeline(packets, containerId, onBrush) {
         const brush = d3.brushX()
             .extent([[0, 0], [width, height]])
             .on("end", (event) => {
+                // Prevent infinite loop from programmatic updates
+                if (!event.sourceEvent) return;
+
                 if (!event.selection) {
                     onBrush(null, null);
                     return;
@@ -114,6 +125,16 @@ export function renderTimeline(packets, containerId, onBrush) {
         const brushG = svg.append("g")
             .attr("class", "brush")
             .call(brush);
+
+        // Apply existing selection
+        if (currentStartTime !== null && currentEndTime !== null) {
+            const x0 = xScale(new Date(currentStartTime * 1000));
+            const x1 = xScale(new Date(currentEndTime * 1000));
+            // Only move if valid
+            if (!isNaN(x0) && !isNaN(x1)) {
+                brush.move(brushG, [x0, x1]);
+            }
+        }
 
         // Style Brush
         brushG.selectAll(".selection")

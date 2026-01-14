@@ -1,12 +1,29 @@
 import './style.css';
+import * as d3 from 'd3';
 import { store } from './core/store.js';
 import { bus } from './core/event_bus.js';
-import { renderNetworkGraph } from './visualizer/network_graph.js';
+import { renderNetworkGraphGL } from './visualizer/network_graph_gl.js';
 // View State
 let currentView = 'graph'; // 'graph' or 'list'
 
 import { renderPacketList } from './visualizer/packet_list.js';
 import { renderTimeline } from './visualizer/timeline.js';
+
+import { renderDetailsPanel, clearDetailsHistory } from './visualizer/details_panel.js';
+
+window.onerror = function (msg, url, lineNo, columnNo, error) {
+    console.error(`Global System Error: ${msg}\nLine: ${lineNo}\nCol: ${columnNo}\nError: ${error}`);
+    const statusBadge = document.getElementById('app-status');
+    if (statusBadge) {
+        statusBadge.querySelector('span').nextSibling.textContent = ` Error: ${msg}`;
+        statusBadge.classList.add('processing');
+        statusBadge.querySelector('.status-dot').style.color = 'var(--accent-danger)';
+    }
+    return false;
+};
+window.onunhandledrejection = function (event) {
+    console.error(`Unhandled Promise Rejection: ${event.reason}`);
+};
 import { StreamAnalyst } from './visualizer/stream_analyst.js';
 import { renderStevensGraph } from './visualizer/stevens_graph.js';
 import { renderHexView } from './visualizer/hex_view.js';
@@ -43,13 +60,25 @@ store.getPackets(); // Init check
 
 bus.on('status:updated', (msg) => {
     const dot = statusBadge.querySelector('.status-dot');
-    const text = statusBadge.childNodes[1]; // Text node
-    if (text) text.textContent = ` ${msg}`;
+    // iterate childNodes to find the text node (nodeType 3)
+    let textNode = null;
+    statusBadge.childNodes.forEach(node => {
+        if (node.nodeType === 3 && node.textContent.trim().length > 0) {
+            textNode = node;
+        }
+    });
+
+    // If no text node found (e.g. initial state might be clean), append one
+    if (!textNode) {
+        textNode = document.createTextNode(` ${msg}`);
+        statusBadge.appendChild(textNode);
+    } else {
+        textNode.textContent = ` ${msg}`;
+    }
 
     // Simple pulse effect based on msg content
     if (msg.includes('Reading') || msg.includes('Processing')) {
         statusBadge.classList.add('processing');
-        dot.style.color = 'var(--accent-cyan)';
     } else {
         statusBadge.classList.remove('processing');
         dot.style.color = 'var(--accent-success)';
@@ -68,11 +97,20 @@ bus.on('data:loaded', (packets) => {
 });
 
 bus.on('selection:changed', (selected) => {
-    if (selected) {
-        detailsPanel.classList.remove('collapsed');
-        renderDetails(selected);
-    } else {
-        detailsPanel.classList.add('collapsed');
+    // If a node is selected, re-render the app to filter the packet list
+    // If a packet is selected, we just show details
+
+    if (store.state.selection?.type === 'node') {
+        const id = store.state.selection.data.id;
+        // Logic to filter list or just highlight
+    }
+
+    // Details Panel is now permanent
+    renderDetails(selected);
+
+    if (!selected) {
+        // If selection cleared, also re-render to remove filter from list/graph
+        renderApp();
     }
 });
 
@@ -104,15 +142,24 @@ if (btnTabAscii) {
     btnTabAscii.addEventListener('click', () => {
         btnTabAscii.classList.add('active');
         btnTabHtml.classList.remove('active');
-        if (currentStreamData) streamContent.textContent = currentStreamData.text;
+        if (currentStreamData) {
+            streamContent.style.whiteSpace = 'pre-wrap';
+            streamContent.textContent = currentStreamData.text;
+        }
     });
+
+
 }
 
 if (btnTabHtml) {
     btnTabHtml.addEventListener('click', () => {
         btnTabHtml.classList.add('active');
         btnTabAscii.classList.remove('active');
-        if (currentStreamData) streamContent.innerHTML = currentStreamData.html;
+        if (currentStreamData) {
+            streamContent.innerHTML = currentStreamData.html;
+        } else {
+            streamContent.textContent = "No data selected.";
+        }
     });
 }
 
@@ -138,7 +185,7 @@ function openStreamAnalysis(packet) {
 
     } catch (e) {
         console.error(e);
-        alert("Stream Analysis Failed: " + e.message);
+        bus.emit('status:updated', "Stream Analysis Failed");
     }
 }
 
@@ -153,8 +200,6 @@ function switchView(view) {
     [btnViewGraph, btnViewList, btnViewMap].forEach(btn => {
         if (btn) {
             btn.classList.remove('active');
-            btn.style.opacity = '0.7';
-            btn.style.background = 'transparent';
         }
     });
 
@@ -166,15 +211,15 @@ function switchView(view) {
 
     if (activeBtn) {
         activeBtn.classList.add('active');
-        activeBtn.style.opacity = '1';
-        activeBtn.style.background = 'rgba(34, 211, 238, 0.1)';
     }
 
     renderApp();
 }
 
 // File Handling
-btnImport.addEventListener('click', () => fileInput.click());
+if (btnImport) btnImport.addEventListener('click', () => fileInput.click());
+const btnBrowseMain = document.getElementById('btn-browse-main');
+if (btnBrowseMain) btnBrowseMain.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0]));
 
 // Drop Zone
@@ -204,17 +249,36 @@ document.getElementById('search-input').addEventListener('input', (e) => {
 // Details Panel
 btnCloseDetails.addEventListener('click', () => {
     store.updateSelection(null, null);
+    document.getElementById('details-panel').classList.add('collapsed');
 });
 
+
+// --- Helper Functions ---
+
+function readFileAsArrayBuffer(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsArrayBuffer(file);
+    });
+}
 
 // --- Core Logic ---
 
 async function handleFileSelect(file) {
     if (!file) return;
-    store.setFile(file);
 
     try {
-        const arrayBuffer = await readFileAsArrayBuffer(file);
+        const dot = statusBadge.querySelector('.status-dot');
+        statusBadge.classList.add('processing');
+        if (dot) dot.style.color = 'var(--accent-primary)';
+
+        // Notify user
+        bus.emit('status:updated', `Reading ${file.name}...`);
+
+        store.setFile(file); // Keep this line from original
+        const arrayBuffer = await readFileAsArrayBuffer(file); // Await the promise
 
         // Dynamic import of worker to ensure path correctness
         const workerUrl = new URL('./worker/pcap.worker.js', import.meta.url);
@@ -223,16 +287,21 @@ async function handleFileSelect(file) {
         worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
 
         worker.onmessage = (e) => {
-            const { type, packets, message } = e.data;
-            if (type === 'status' || type === 'progress') {
-                bus.emit('status:updated', message);
-            } else if (type === 'complete') {
-                store.setPackets(packets);
-                worker.terminate();
-            } else if (type === 'error') {
-                console.error(e.data.error);
-                bus.emit('status:updated', "Error: " + e.data.error);
-                worker.terminate();
+            try {
+                const { type, packets, message } = e.data;
+                if (type === 'status' || type === 'progress') {
+                    bus.emit('status:updated', message);
+                } else if (type === 'complete') {
+                    store.setPackets(packets);
+                    worker.terminate();
+                } else if (type === 'error') {
+                    console.error(e.data.error);
+                    bus.emit('status:updated', "Error: " + e.data.error);
+                    worker.terminate();
+                }
+            } catch (err) {
+                console.error("Worker Handler Error:", err);
+                bus.emit('status:updated', "Render Err: " + err.message);
             }
         };
 
@@ -242,200 +311,212 @@ async function handleFileSelect(file) {
     }
 }
 
-function readFileAsArrayBuffer(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(file);
-    });
-}
+
 
 function renderApp() {
-    // Check if data exists
-    const packets = store.getPackets();
-    if (packets.length === 0) return;
+    try {
+        console.log("renderApp() triggered");
+        // Check if data exists
+        const packets = store.getPackets();
+        if (packets.length === 0) return;
 
-    // Apply Time Filter
-    let activePackets = packets;
-    if (store.state.filter.timeStart) {
-        activePackets = activePackets.filter(p => p.timestamp >= store.state.filter.timeStart && p.timestamp <= store.state.filter.timeEnd);
-    }
+        // Apply Time Filter
+        let activePackets = packets;
+        if (store.state.filter.timeStart) {
+            activePackets = activePackets.filter(p => p.timestamp >= store.state.filter.timeStart && p.timestamp <= store.state.filter.timeEnd);
+        }
 
-    // Apply Search Filter (Case insensitive)
-    const searchTerm = store.state.filter.searchTerm ? store.state.filter.searchTerm.toLowerCase() : '';
-    if (searchTerm) {
-        activePackets = activePackets.filter(p => {
-            const src = p.ip?.src || '';
-            const dst = p.ip?.dst || '';
-            const proto = (p.tcp ? 'tcp' : (p.udp ? 'udp' : (p.icmp ? 'icmp' : '')));
+        // Apply Search Filter (Case insensitive)
+        const searchTerm = store.state.filter.searchTerm ? store.state.filter.searchTerm.toLowerCase() : '';
+        if (searchTerm) {
+            activePackets = activePackets.filter(p => {
+                const src = p.ip?.src || '';
+                const dst = p.ip?.dst || '';
+                const proto = (p.tcp ? 'tcp' : (p.udp ? 'udp' : (p.icmp ? 'icmp' : '')));
 
-            // Basic searching - extend as needed
-            if (src.includes(searchTerm) || dst.includes(searchTerm)) return true;
-            if (proto.includes(searchTerm)) return true;
+                // Basic searching - extend as needed
+                if (src.includes(searchTerm) || dst.includes(searchTerm)) return true;
+                if (proto.includes(searchTerm)) return true;
 
-            // Info field search
-            let info = '';
-            if (p.app) info = p.app.info;
-            // else if (p.tcp) ... (reconstruct info string if needed, or search ports)
-            if (info && info.toLowerCase().includes(searchTerm)) return true;
+                // Info field search
+                let info = '';
+                if (p.app) info = p.app.info;
+                // else if (p.tcp) ... (reconstruct info string if needed, or search ports)
+                if (info && info.toLowerCase().includes(searchTerm)) return true;
 
-            return false;
-        });
-    }
+                return false;
+            });
+        }
 
-    // Run Security Scan
-    const alerts = SecurityEngine.scan(activePackets);
-
-    if (currentView === 'graph') {
-        const flows = store.getFlows().filter(f => {
-            const hidden = store.getHiddenNodes().has(f.source) || store.getHiddenNodes().has(f.target);
-            if (hidden) return false;
-
-            if (searchTerm) {
-                return f.source.includes(searchTerm) || f.target.includes(searchTerm);
+        // Apply Node Selection Filter (Graph Focus)
+        const selectedNode = store.state.selection?.type === 'node' ? store.state.selection.data : null;
+        if (selectedNode) {
+            if (activePackets.length > 0) {
+                activePackets = activePackets.filter(p => {
+                    if (!p.ip) return false;
+                    // Check if source or dest matches the selected node ID
+                    return (p.ip.src === selectedNode.id || p.ip.dst === selectedNode.id);
+                });
             }
-            return true;
-        });
+        }
 
-        renderNetworkGraph(flows, 'visualization-container',
-            (type, data) => store.updateSelection(type, data),
-            (id) => store.hideNode(id)
-        );
-    } else if (currentView === 'map') {
-        renderGeoMap(activePackets, 'visualization-container');
-    } else {
-        renderPacketList(activePackets, 'visualization-container', packets);
+        // Run Security Scan
+        const alerts = SecurityEngine.scan(activePackets);
+
+        if (currentView === 'graph') {
+            const flows = store.getFlows().filter(f => {
+                const hidden = store.getHiddenNodes().has(f.source) || store.getHiddenNodes().has(f.target);
+                if (hidden) return false;
+
+                // If focused, we could filter graph too, but visualizer handles dimming.
+                // Packet list handles the data filtering.
+                return true;
+            });
+
+            renderNetworkGraphGL(flows, 'visualization-container',
+                (type, data) => store.updateSelection(type, data),
+                (id) => store.hideNode(id),
+                selectedNode // Pass current selection for sync
+            );
+        } else if (currentView === 'map') {
+            renderGeoMap(activePackets, 'visualization-container');
+        } else {
+            renderPacketList(activePackets, 'visualization-container', packets);
+        }
+
+        // Render Timeline
+        // Use visible 'packets' (filtered by global search if we want, but usually Global Timeline = ALL packets)
+        // Let's use ALL packets (packets variable) to maintain context.
+        renderTimeline(packets, 'timeline-container', (start, end) => {
+            store.updateTimeFilter(start, end);
+        }, store.state.filter.timeStart, store.state.filter.timeEnd);
+
+        // Update Sidebar Stats
+        updateSidebarStats(activePackets, alerts);
+
+    } catch (e) {
+        console.error("Render Failure", e);
+        bus.emit('status:updated', "Render Failure");
     }
-
-    // Render Timeline
-    renderTimeline(activePackets, 'timeline-container', (start, end) => {
-        store.updateTimeFilter(start, end);
-    });
-
-    // Update Sidebar Stats
-    updateSidebarStats(activePackets, alerts);
 }
 
 function updateSidebarStats(packets, alerts = []) {
-    // If no packets passed (initial call), use main store
-    if (!packets) packets = store.getPackets();
+    const container = document.getElementById('sidebar-stats');
+    if (!container) return;
 
-    // We can't easily get flows for filtered packets without re-analyzing, 
-    // so for now just show packet stats or total flows.
-    // Let's show visible packet count.
+    // Clear previous
+    container.innerHTML = '';
 
-    const statsContainer = document.getElementById('sidebar-stats');
-
-    let tcp = 0, udp = 0;
-    packets.forEach(p => {
-        if (p.tcp) tcp++;
-        if (p.udp) udp++;
-    });
-
-    // Calculate total Flows just for context (or filter them if we want)
-    const totalFlowsCount = store.getFlows().length;
-
-    // Security Alerts HTML
-    let alertsHtml = '';
-    if (alerts && alerts.length > 0) {
-        alertsHtml = `
-            <div class="glass-panel" style="margin-top:1rem; border-color:var(--accent-warn);">
-                <div style="font-size:0.8rem; color:var(--accent-warn); font-weight:700; margin-bottom:5px;">THREATS DETECTED (${alerts.length})</div>
-                <div style="max-height:150px; overflow:auto; font-size:0.75rem;">
-                    ${alerts.map(a => `<div style="margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid rgba(255,255,255,0.1); color:var(--text-secondary);">
-                        <span style="color:var(--accent-danger)">${a.type}</span><br>
-                        Src: ${a.source}
-                    </div>`).join('')}
-                </div>
-            </div>
-        `;
-    }
-
-    statsContainer.innerHTML = `
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; text-align:center;">
-            <div class="glass-panel" style="padding:10px;">
-                <div style="font-size:1.5rem; color:var(--text-primary); font-weight:700;">${packets.length.toLocaleString()}</div>
-                <div style="font-size:0.7rem; color:var(--text-secondary);">PACKETS</div>
-            </div>
-            <div class="glass-panel" style="padding:10px;">
-                <div style="font-size:1.5rem; color:var(--accent-blue); font-weight:700;">${totalFlowsCount.toLocaleString()}</div>
-                <div style="font-size:0.7rem; color:var(--text-secondary);">TOTAL FLOWS</div>
-            </div>
-        </div>
-        
-        <div class="glass-panel" style="margin-top:1rem;">
-             <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                <span style="font-size:0.8rem; color:var(--text-secondary);">TCP Traffic</span>
-                <span style="font-size:0.8rem; color:var(--accent-cyan);">${Math.round(tcp / (packets.length || 1) * 100)}%</span>
-             </div>
-             <div style="width:100%; height:4px; background:rgba(255,255,255,0.1); border-radius:2px; overflow:hidden;">
-                <div style="width:${Math.round(tcp / (packets.length || 1) * 100)}%; height:100%; background:var(--accent-cyan);"></div>
-             </div>
-        </div>
-
-        ${alertsHtml}
-    `;
-}
-
-function renderDetails(selected) {
-    const container = document.getElementById('details-content');
-    if (!selected) {
-        container.innerHTML = '';
+    if (!packets || packets.length === 0) {
+        container.innerHTML = '<div class="empty-state">No Data</div>';
         return;
     }
 
-    if (selected.type === 'node') {
-        const id = selected.data.id;
-        const hostname = store.getHostnames().get(id) || 'Unknown Host';
-        container.innerHTML = `
-            <div style="font-size:1.2rem; margin-bottom:0.5rem; color:white; font-family:var(--font-mono);">${id}</div>
-            <div style="color:var(--accent-magenta); font-size:0.9rem; margin-bottom:1rem;">${hostname}</div>
-            <div class="glass-panel">
-                <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:5px;">Role</div>
-                <div style="font-family:var(--font-mono); color:var(--accent-cyan);">${selected.data.type.toUpperCase()}</div>
-            </div>
-             <div class="glass-panel">
-                <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:5px;">Traffic</div>
-                <div>Sent: ${selected.data.value} bytes</div>
-                <div>Connections: ${selected.data.connections}</div>
-            </div>
+    // --- Data Processing ---
+    const totalPackets = packets.length;
+
+    // Protocol Counts
+    const protocols = { TCP: 0, UDP: 0, ICMP: 0, Other: 0 };
+    packets.forEach(p => {
+        if (p.tcp) protocols.TCP++;
+        else if (p.udp) protocols.UDP++;
+        else if (p.icmp) protocols.ICMP++;
+        else protocols.Other++;
+    });
+
+    // Alert Count
+    const totalAlerts = alerts.length;
+
+    // --- Render Stats Cards ---
+
+    // 1. Total Packets (Big Number)
+    const cardTotal = document.createElement('div');
+    cardTotal.className = 'stat-card';
+    cardTotal.innerHTML = `
+        <div class="stat-label">TOTAL PACKETS</div>
+        <div class="stat-value" style="color:var(--accent-primary);">${totalPackets.toLocaleString()}</div>
+    `;
+    container.appendChild(cardTotal);
+
+    // 2. Protocol Distribution (Donut Chart)
+    const cardProto = document.createElement('div');
+    cardProto.className = 'stat-card';
+    cardProto.style.marginTop = '1rem';
+    cardProto.innerHTML = `<div class="stat-label" style="margin-bottom:8px;">PROTOCOL MIX</div>`;
+
+    const chartContainer = document.createElement('div');
+    chartContainer.style.height = '120px'; // fixed height for chart
+    chartContainer.style.position = 'relative';
+    cardProto.appendChild(chartContainer);
+    container.appendChild(cardProto);
+
+    // Render Chart using D3
+    renderSidebarDonut(chartContainer, protocols);
+
+    // 3. Security Alerts (if any)
+    if (totalAlerts > 0) {
+        const cardAlerts = document.createElement('div');
+        cardAlerts.className = 'stat-card';
+        cardAlerts.style.marginTop = '1rem';
+        cardAlerts.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+        cardAlerts.innerHTML = `
+            <div class="stat-label" style="color:var(--accent-danger);">THREAT DETECTED</div>
+            <div class="stat-value" style="color:var(--accent-danger);">${totalAlerts} <span style="font-size:0.8rem; font-weight:400;">EVENTS</span></div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">${alerts[0].type}</div>
         `;
-    } else if (selected.type === 'link') {
-        container.innerHTML = `
-            <div style="font-size:1rem; margin-bottom:0.5rem; color:white;">Connection Details</div>
-            <div style="color:var(--text-secondary); font-size:0.8rem; font-family:var(--font-mono);">
-                ${selected.data.source.id} <br/> ↓ <br/> ${selected.data.target.id}
-            </div>
-        `;
-    } else if (selected.type === 'packet') {
-        const p = selected.data;
-
-        let actions = '';
-        if (p.tcp) {
-            actions = `<button id="btn-follow" class="btn-neon" style="width:100%; margin-bottom:1rem;">Follow Stream</button>`;
-        }
-
-        container.innerHTML = `
-            <div style="font-size:1rem; margin-bottom:0.5rem; color:white;">Packet #${p.index !== undefined ? p.index + 1 : '?'}</div>
-            ${actions}
-            <div class="glass-panel" style="font-family:var(--font-mono); font-size:0.8rem; overflow:auto;">
-                 <div id="hex-view-container">Loading Hex...</div>
-            </div>
-            <!-- Raw JSON fallback -->
-             <div class="glass-panel" style="font-family:var(--font-mono); font-size:0.7rem; margin-top:10px; opacity:0.6;">
-                 <pre style="margin:0;">${JSON.stringify(p, null, 2)}</pre>
-            </div>
-        `;
-
-        // Render Hex View
-        const hexContainer = container.querySelector('#hex-view-container');
-        if (hexContainer) renderHexView(p, hexContainer);
-
-        // Bind Actions
-        const btnFollow = container.querySelector('#btn-follow');
-        if (btnFollow) {
-            btnFollow.addEventListener('click', () => openStreamAnalysis(p));
-        }
+        container.appendChild(cardAlerts);
     }
 }
+
+function renderSidebarDonut(element, data) {
+    const width = element.clientWidth || 200;
+    const height = 120;
+    const radius = Math.min(width, height) / 2;
+
+    const svg = d3.select(element)
+        .append("svg")
+        .attr("width", width)
+        .attr("height", height)
+        .append("g")
+        .attr("transform", `translate(${width / 2},${height / 2})`);
+
+    const color = d3.scaleOrdinal()
+        .domain(["TCP", "UDP", "ICMP", "Other"])
+        .range(["#3b82f6", "#10b981", "#f59e0b", "#64748b"]);
+
+    const pie = d3.pie()
+        .value(d => d.value)
+        .sort(null);
+
+    const dataReady = pie(Object.entries(data).map(([key, value]) => ({ key, value })));
+
+    const arc = d3.arc()
+        .innerRadius(radius * 0.6)
+        .outerRadius(radius * 0.9);
+
+    svg.selectAll('allSlices')
+        .data(dataReady)
+        .enter()
+        .append('path')
+        .attr('d', arc)
+        .attr('fill', d => color(d.data.key))
+        .attr("stroke", "var(--bg-card)")
+        .style("stroke-width", "2px")
+        .style("opacity", 0.9);
+
+    // Center Text
+    const total = Object.values(data).reduce((a, b) => a + b, 0);
+    svg.append("text")
+        .attr("text-anchor", "middle")
+        .attr("dy", "0.3em")
+        .style("font-size", "0.8rem")
+        .style("fill", "var(--text-primary)")
+        .style("font-family", "var(--font-mono)")
+        .text(total > 1000 ? (total / 1000).toFixed(1) + 'k' : total);
+}
+
+function renderDetails(selected) {
+    renderDetailsPanel(selected, 'details-content');
+}
+
+

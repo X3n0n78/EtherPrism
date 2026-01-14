@@ -59,8 +59,8 @@ export class StreamAnalyst {
         return {
             id: `${srcIP}:${srcPort}-${dstIP}:${dstPort}`,
             packets: streamPackets,
-            text: textContent,
-            html: htmlContent
+            text: textContent || "No ASCII Data",
+            html: htmlContent || "<div style='color:gray'>No HTML Data</div>"
         };
     }
 

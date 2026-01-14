@@ -5,8 +5,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EtherPrism Nexus</title>
-  <script type="module" crossorigin src="/assets/index-B7r7j0h_.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CDLsydbf.css">
+  <script type="module" crossorigin src="/assets/index-DdNBbcIC.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DLun3I5q.css">
 </head>
 
 <body>
@@ -25,6 +25,7 @@
           <button class="btn-neon active" id="btn-view-graph"
             style="margin:0; border:none; background:rgba(34, 211, 238, 0.1);">Graph</button>
           <button class="btn-neon" id="btn-view-list" style="margin:0; border:none; opacity:0.7;">List</button>
+          <button class="btn-neon" id="btn-view-map" style="margin:0; border:none; opacity:0.7;">Map</button>
         </div>
         <button class="btn-neon" id="btn-import">Import PCAP</button>
         <button class="btn-neon" id="btn-settings">Settings</button>
@@ -80,6 +81,34 @@
     <section id="timeline-view">
       <div id="timeline-container" style="width:100%; height:100%;"></div>
     </section>
+  </div>
+
+  <!-- Stream Analysis Modal -->
+  <div id="stream-modal" class="hidden"
+    style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; display:flex; justify-content:center; align-items:center; backdrop-filter:blur(5px);">
+    <div class="glass-panel"
+      style="width:90%; height:90%; display:flex; flex-direction:column; background:var(--bg-panel); border:1px solid var(--accent-cyan); box-shadow:0 0 30px rgba(34,211,238,0.2);">
+      <div
+        style="padding:1rem; border-bottom:1px solid var(--border-neon); display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin:0; color:var(--text-primary); text-shadow:0 0 10px var(--accent-cyan);">TCP STREAM ANALYSIS
+        </h2>
+        <div style="display:flex; gap:10px;">
+          <div style="display:flex; background:rgba(255,255,255,0.05); border-radius:4px;">
+            <button id="btn-tab-ascii" class="btn-neon active" style="margin:0; border:none;">ASCII</button>
+            <button id="btn-tab-html" class="btn-neon" style="margin:0; border:none;">HTML</button>
+          </div>
+          <button id="btn-close-stream" class="btn-neon"
+            style="border-color:var(--accent-danger); color:var(--accent-danger);">CLOSE</button>
+        </div>
+      </div>
+      <div style="flex:1; display:grid; grid-template-rows: 200px 1fr; overflow:hidden;">
+        <div id="stevens-graph-container" style="border-bottom:1px solid var(--border-neon); position:relative;"></div>
+        <div id="stream-content"
+          style="padding:1rem; overflow:auto; font-family:var(--font-mono); color:var(--text-secondary); background:var(--bg-darker);">
+          Select a stream...
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Scripts -->
