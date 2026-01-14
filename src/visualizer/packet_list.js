@@ -24,21 +24,16 @@ export function renderPacketList(packets, containerId) {
                 <tbody id="packet-table-body"></tbody>
             </table>
         </div>
-        <div id="packet-detail-view" class="packet-detail-view hidden">
-            <!-- Hex/Detail view goes here -->
-        </div>
     `;
 
     const tbody = document.getElementById('packet-table-body');
-    const detailView = document.getElementById('packet-detail-view');
 
-    // Render Rows (Virtualization might be needed for huge lists, 
-    // but for single flow < 1000 items simple DOM is fine)
     const fragment = document.createDocumentFragment();
 
     packets.forEach((packet, index) => {
         const tr = document.createElement('tr');
         tr.className = 'packet-row';
+        tr.dataset.index = index;
 
         // Determine protocol string
         let proto = 'ETH';
@@ -48,13 +43,10 @@ export function renderPacketList(packets, containerId) {
         else if (packet.imgp) proto = 'IGMP';
 
         // Format Info
-        // Format Info with more details
         let info = ``;
         if (packet.app) {
-            // App Layer
             info = `${packet.app.type} ${packet.app.info}`;
         } else if (packet.tcp) {
-            // TCP Flags + Seq + Window
             const flags = [];
             if (packet.tcp.syn) flags.push('S');
             if (packet.tcp.ack) flags.push('A');
@@ -66,15 +58,11 @@ export function renderPacketList(packets, containerId) {
             info = `${packet.udp.src_port}→${packet.udp.dst_port} Len=${packet.udp.length}`;
         }
 
-        // IP TTL/Flags
         if (packet.ip) {
             info += ` (TTL=${packet.ip.ttl})`;
         }
 
-        // Timestamp relative to first packet in global capture? 
-        // Or just absolute. Let's use simple generic timestamp for now or index.
-        // If we had capture start time we could do relative.
-        const timeStr = (packet.timestamp / 1000000).toFixed(4); // assuming microseconds
+        const timeStr = (packet.timestamp / 1000000).toFixed(4);
 
         tr.innerHTML = `
             <td>${index + 1}</td>
@@ -86,10 +74,44 @@ export function renderPacketList(packets, containerId) {
             <td class="info-cell" title="${info}">${info}</td>
         `;
 
-        tr.onclick = () => {
-            document.querySelectorAll('.packet-row.selected').forEach(r => r.classList.remove('selected'));
+        tr.onclick = (e) => {
+            // Check if already expanded
+            const nextRow = tr.nextSibling;
+            if (nextRow && nextRow.classList.contains('packet-detail-row')) {
+                nextRow.remove();
+                tr.classList.remove('selected');
+                return;
+            }
+
+            // Close other expansions
+            document.querySelectorAll('.packet-detail-row').forEach(row => {
+                row.previousSibling.classList.remove('selected');
+                row.remove();
+            });
+
             tr.classList.add('selected');
-            showPacketDetails(packet, detailView);
+
+            // Create expansion row
+            const detailRow = document.createElement('tr');
+            detailRow.className = 'packet-detail-row';
+            const detailCell = document.createElement('td');
+            detailCell.colSpan = 7;
+
+            // Render JSON content
+            detailCell.innerHTML = `
+                <div class="packet-detail-content">
+                    <pre class="json-view">${syntaxHighlight(JSON.stringify(packet, null, 2))}</pre>
+                </div>
+            `;
+
+            detailRow.appendChild(detailCell);
+
+            // Insert after current row
+            if (tr.nextSibling) {
+                tbody.insertBefore(detailRow, tr.nextSibling);
+            } else {
+                tbody.appendChild(detailRow);
+            }
         };
 
         fragment.appendChild(tr);
@@ -97,35 +119,23 @@ export function renderPacketList(packets, containerId) {
 
     tbody.appendChild(fragment);
 
-    // Simple Filter Logic
+    // Simple Filter Logic (rest stays same)
     const filterInput = document.getElementById('packet-filter');
     filterInput.addEventListener('input', (e) => {
         const term = e.target.value.toLowerCase();
-        const rows = tbody.querySelectorAll('tr');
+        const rows = tbody.querySelectorAll('tr.packet-row');
         rows.forEach(row => {
             const text = row.innerText.toLowerCase();
             row.style.display = text.includes(term) ? '' : 'none';
+            // Hide detail row if parent is hidden
+            if (row.style.display === 'none' && row.nextSibling && row.nextSibling.classList.contains('packet-detail-row')) {
+                row.nextSibling.style.display = 'none';
+            }
         });
     });
 }
 
-function showPacketDetails(packet, container) {
-    container.classList.remove('hidden');
-
-    // Generate a simple hex dump view approx
-    // Since we only have decoded data + raw ArrayBuffer slice if we kept it.
-    // In current main.js architecture we might not be keeping raw payload fully in memory for all packets
-    // to save RAM? Let's check. state.packets usually has it.
-
-    // For now, render the JSON structure beautifully
-
-    let content = '<div class="detail-header">Packet Details <button onclick="this.parentElement.parentElement.classList.add(\'hidden\')">×</button></div>';
-    content += '<div class="detail-content"><pre class="json-view">';
-    content += syntaxHighlight(JSON.stringify(packet, null, 2));
-    content += '</pre></div>';
-
-    container.innerHTML = content;
-}
+// Remove showPacketDetails function as it is now inline
 
 function syntaxHighlight(json) {
     json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

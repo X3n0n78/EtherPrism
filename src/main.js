@@ -2,6 +2,7 @@ import './style.css';
 import { renderNetworkGraph } from './visualizer/network_graph.js';
 import { renderTimeline } from './visualizer/timeline.js';
 import { renderDashboard } from './visualizer/dashboard.js';
+import { renderPacketList } from './visualizer/packet_list.js';
 
 // IMMEDIATE STATUS UPDATE - If this runs, JS is working
 const statusText = document.getElementById('status-text');
@@ -370,11 +371,14 @@ function renderAppFiltered() {
     renderNetworkGraph(flowData, 'visualization-container', handleSelection, handleHideNode);
 }
 
+
+
 function handleSelection(type, data) {
     if (!type) {
         closeSidePanel();
         return;
     }
+
     state.selected = { type, data };
     showSidePanel(type, data);
 }
@@ -383,30 +387,102 @@ function showSidePanel(type, data) {
     if (!sidePanel) return;
 
     sidePanel.classList.remove('hidden');
+
+    // Structure with Tabs
+    sidePanel.innerHTML = `
+        <div class="panel-header">
+            <h3 id="panel-title">Details</h3>
+            <button id="btn-close-panel" class="btn-close">&times;</button>
+        </div>
+        <div class="panel-tabs">
+            <button class="panel-tab active" data-tab="stats">Stats</button>
+            <button class="panel-tab" data-tab="packets" id="tab-packets">Packets</button>
+        </div>
+        <div class="panel-content" id="panel-content">
+            <!-- Content Injected Here -->
+        </div>
+    `;
+
+    // Re-attach close listener
+    document.getElementById('btn-close-panel').onclick = closeSidePanel;
+
+    // Tab Listeners
+    const tabs = sidePanel.querySelectorAll('.panel-tab');
+    tabs.forEach(tab => {
+        tab.onclick = () => {
+            tabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            renderPanelContent(type, data, tab.dataset.tab);
+        };
+    });
+
+    // Initial Render
+    renderPanelContent(type, data, 'stats');
+}
+
+function renderPanelContent(type, data, tabName) {
+    const container = document.getElementById('panel-content');
     const title = document.getElementById('panel-title');
+
+    // Retrieve Flow or Node Data
+    let flow = null;
+    let nodeIp = null;
+
+    if (type === 'link') {
+        flow = state.flows.get(`${data.source.id}->${data.target.id}`) ||
+            state.flows.get(`${data.source}->${data.target}`) || data;
+        title.textContent = "Flow Details";
+    } else {
+        nodeIp = data.id;
+        title.textContent = `Host: ${nodeIp}`;
+    }
+
+    if (tabName === 'packets') {
+        let packetsToShow = [];
+        if (type === 'link' && flow) {
+            packetsToShow = flow.packets || [];
+        } else if (type === 'node' && nodeIp) {
+            // Aggregate all packets for this node
+            packetsToShow = state.packets.filter(p =>
+                (p.ip && p.ip.src === nodeIp) || (p.ip && p.ip.dst === nodeIp)
+            );
+        }
+        renderPacketList(packetsToShow, 'panel-content');
+        return;
+    }
+
+    // Render Stats (Classic View)
     let content = '';
 
     if (type === 'node') {
-        const ip = data.id;
-        title.textContent = `Host: ${ip}`;
-        const hostname = state.hostnames.get(ip) || 'Unresolved';
+        const hostname = state.hostnames.get(nodeIp) || 'Unresolved';
         const hostnameColor = hostname === 'Unresolved' ? 'var(--text-muted)' : 'var(--accent-cyan)';
 
         let totalSent = 0;
         let totalRecv = 0;
         let sentPackets = 0;
         let recvPackets = 0;
+        const protocols = {};
 
         state.flows.forEach(f => {
-            if (f.source === ip) {
+            if (f.source === nodeIp) {
                 totalSent += f.value;
                 sentPackets += f.count;
+                Object.keys(f.protocolCounts).forEach(p => protocols[p] = (protocols[p] || 0) + f.protocolCounts[p]);
             }
-            if (f.target === ip) {
+            if (f.target === nodeIp) {
                 totalRecv += f.value;
                 recvPackets += f.count;
+                Object.keys(f.protocolCounts).forEach(p => protocols[p] = (protocols[p] || 0) + f.protocolCounts[p]);
             }
         });
+
+        // Top Protocols
+        const sortedProtos = Object.entries(protocols)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([p, c]) => `${p} (${c})`)
+            .join(', ');
 
         content = `
             <div class="panel-stat"><label>Hostname</label><span style="color:${hostnameColor}">${hostname}</span></div>
@@ -414,14 +490,11 @@ function showSidePanel(type, data) {
             <div class="panel-stat"><label>Total Traffic</label><span>${formatBytes(totalSent + totalRecv)}</span></div>
             <div class="panel-stat"><label>Sent</label><span>${formatBytes(totalSent)} (${sentPackets} pkts)</span></div>
             <div class="panel-stat"><label>Received</label><span>${formatBytes(totalRecv)} (${recvPackets} pkts)</span></div>
+            <div class="panel-stat"><label>Top Protocols</label><span>${sortedProtos || '-'}</span></div>
             <hr style="border-color:rgba(255,255,255,0.1); margin: 1rem 0;">
-            <div style="color:var(--accent-cyan); font-size:0.8rem;">Connections</div>
+            <div style="color:var(--accent-cyan); font-size:0.8rem;">Select 'Packets' tab for details</div>
         `;
-    } else if (type === 'link') {
-        title.textContent = `Flow Details`;
-        const flow = state.flows.get(`${data.source.id}->${data.target.id}`) ||
-            state.flows.get(`${data.source}->${data.target}`) || data;
-
+    } else if (type === 'link' && flow) {
         content = `
             <div class="panel-stat"><label>Source</label><span>${flow.source?.id || flow.source}</span></div>
             <div class="panel-stat"><label>Target</label><span>${flow.target?.id || flow.target}</span></div>
@@ -432,7 +505,8 @@ function showSidePanel(type, data) {
             ${renderAppInfo(flow)}
         `;
     }
-    panelContent.innerHTML = content;
+
+    container.innerHTML = content;
 }
 
 function renderAppInfo(flow) {
