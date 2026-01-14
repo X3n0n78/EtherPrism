@@ -15,6 +15,7 @@
       <div class="logo">
         <span class="logo-icon">💎</span>
         <span>EtherPrism</span>
+        <span class="version-tag">v0.5.0-alpha</span>
       </div>
       <div class="status-bar" id="status-bar">
         <div class="status-dot" id="status-dot"></div>
@@ -23,6 +24,37 @@
     </header>
 
     <main>
+      <!-- Controls (Reset/Export) -->
+      <div id="controls" class="controls hidden">
+        <input type="text" id="search-input" placeholder="Search IP..." class="search-input" />
+        <button id="btn-export" class="btn-icon" title="Export JSON">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+        </button>
+        <button id="btn-reset" class="btn-icon" title="New Analysis">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Side Panel (Interactivity) -->
+      <div id="side-panel" class="side-panel hidden">
+        <div class="panel-header">
+          <h3 id="panel-title">Details</h3>
+          <button id="btn-close-panel" class="btn-close">&times;</button>
+        </div>
+        <div class="panel-content" id="panel-content">
+          <!-- Dynamic Content -->
+        </div>
+      </div>
+
       <div id="drop-zone" class="drop-zone">
         <div class="icon-container">
           <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
@@ -39,8 +71,12 @@
       </div>
 
       <div id="visualization-container" class="hidden">
-        <!-- D3 Sankey will be rendered here -->
         <svg id="sankey-svg"></svg>
+      </div>
+
+      <!-- Timeline (Bottom Overlay) -->
+      <div id="timeline-container" class="timeline-container hidden">
+        <svg id="timeline-svg"></svg>
       </div>
     </main>
   </div>
