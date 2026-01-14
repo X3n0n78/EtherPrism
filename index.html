@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EtherPrism | PCAP Visualizer</title>
+    <meta name="description" content="High-performance, browser-based PCAP visualizer using D3.js">
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <div class="logo">💎 EtherPrism</div>
+        <div class="status-bar" id="status-bar">Ready</div>
+      </header>
+      
+      <main>
+        <div id="drop-zone" class="drop-zone">
+          <div class="content">
+            <span class="icon">📂</span>
+            <p>Drag & Drop a <strong>.pcap</strong> file here</p>
+            <p class="sub">or click to browse</p>
+          </div>
+          <input type="file" id="file-input" accept=".pcap,.cap" hidden />
+        </div>
+
+        <div id="visualization-container" class="hidden">
+           <!-- D3 Sankey will be rendered here -->
+           <svg id="sankey-svg"></svg>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
