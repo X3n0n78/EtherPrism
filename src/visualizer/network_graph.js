@@ -1,15 +1,16 @@
 import * as d3 from 'd3';
 
-export function renderNetworkGraph(flows, containerId) {
+export function renderNetworkGraph(flows, containerId, onSelection) {
     const container = document.getElementById(containerId);
-    const width = container.clientWidth;
-    const height = container.clientHeight;
+    if (!container) return; // Guard
+
+    const width = container.clientWidth || 800; // Fallback width
+    const height = container.clientHeight || 600; // Fallback height
 
     // Clear previous
     container.innerHTML = '';
 
     // Data Transformation
-    // Create a unique set of nodes
     const nodesMap = new Map();
     flows.forEach(f => {
         if (!nodesMap.has(f.source)) nodesMap.set(f.source, { id: f.source, value: 0 });
@@ -33,7 +34,7 @@ export function renderNetworkGraph(flows, containerId) {
         .attr('width', width)
         .attr('height', height)
         .attr('viewBox', [0, 0, width, height])
-        .style('background', '#0f172a'); // Match bg-dark
+        .style('background', 'transparent');
 
     // Define Glow Filter
     const defs = svg.append("defs");
@@ -55,29 +56,44 @@ export function renderNetworkGraph(flows, containerId) {
 
     // Link Lines
     const link = svg.append('g')
-        .attr('stroke', '#38bdf8') // Cyan lines
+        .attr('stroke', '#38bdf8')
         .attr('stroke-opacity', 0.2)
         .selectAll('line')
         .data(links)
         .join('line')
-        .attr('stroke-width', d => Math.min(Math.sqrt(d.value) / 100, 3) + 0.5);
+        .attr('stroke-width', d => Math.min(Math.sqrt(d.value) / 100, 3) + 0.5)
+        .attr('class', 'graph-link')
+        .style('cursor', 'pointer')
+        .on('click', (event, d) => {
+            event.stopPropagation();
+            if (onSelection) onSelection('link', d);
+        });
 
     // Node Circles
     const node = svg.append('g')
-        .attr('stroke', '#1e293b') // Dark border
+        .attr('stroke', '#1e293b')
         .attr('stroke-width', 1.5)
         .selectAll('circle')
         .data(nodes)
         .join('circle')
         .attr('r', d => Math.min(Math.sqrt(d.value) / 50 + 5, 25))
         .attr('fill', d => {
-            // Color heuristic
-            if (d.id.startsWith('192.168.') || d.id.startsWith('10.')) return '#4ade80'; // Green (Local)
-            if (d.id.includes(':')) return '#f472b6'; // Pink (IPv6)
-            return '#38bdf8'; // Blue (Public/WAN)
+            if (d.id.startsWith('192.168.') || d.id.startsWith('10.')) return '#4ade80';
+            if (d.id.includes(':')) return '#f472b6';
+            return '#38bdf8';
         })
-        .style("filter", "url(#glow)") // Apply Glow
+        .style("filter", "url(#glow)")
+        .style("cursor", "pointer")
+        .on('click', (event, d) => {
+            event.stopPropagation();
+            if (onSelection) onSelection('node', d);
+        })
         .call(drag(simulation));
+
+    // Deselect on background click
+    svg.on('click', () => {
+        if (onSelection) onSelection(null, null);
+    });
 
     // Titles (Tooltips)
     node.append('title')
