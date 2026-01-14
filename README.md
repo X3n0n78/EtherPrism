@@ -5,11 +5,14 @@
 
 ## Features ✨
 
+## Features ✨
+
 - **🚀 Lightweight & Fast**: No installation required, runs directly in the browser.
 - **🛡️ Privacy First**: PCAP files **never leave your machine**. All processing happens locally in the browser's memory.
-- **Drag & Drop**: Simply drag in a file, and analysis starts immediately.
-- **Sankey Visualization**: Spectacular diagrams illustrating communication directions and bandwidth.
-- **Binary Engine**: Custom, pure JavaScript (DataView) based PCAP processing engine without external dependencies.
+- **Interactive Graph**: Force-Directed graph with physics-based nodes and links.
+- **Timeline Analysis**: Brushable timeline to filter traffic by time.
+- **Deep Inspection**: Click on any node or link to see detailed statistics (Bytes, Packets, Protocol distribution).
+- **Binary Engine**: Custom, pure JavaScript (DataView) based PCAP processing engine.
 
 ## Technologies 🛠️
 
