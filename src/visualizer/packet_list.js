@@ -12,11 +12,12 @@ export function renderPacketList(packets, containerId) {
             <table class="packet-table">
                 <thead>
                     <tr>
-                        <th style="width: 60px">#</th>
-                        <th style="width: 80px">Time</th>
-                        <th style="width: 120px">Source</th>
-                        <th style="width: 120px">Dest</th>
-                        <th style="width: 60px">Proto</th>
+                        <th style="width: 50px">#</th>
+                        <th style="width: 70px">Time</th>
+                        <th style="width: 110px">Source</th>
+                        <th style="width: 110px">Dest</th>
+                        <th style="width: 50px">Proto</th>
+                        <th style="width: 50px">Len</th>
                         <th>Info</th>
                     </tr>
                 </thead>
@@ -47,19 +48,27 @@ export function renderPacketList(packets, containerId) {
         else if (packet.imgp) proto = 'IGMP';
 
         // Format Info
-        let info = `${packet.length} bytes`;
+        // Format Info with more details
+        let info = ``;
         if (packet.app) {
+            // App Layer
             info = `${packet.app.type} ${packet.app.info}`;
         } else if (packet.tcp) {
+            // TCP Flags + Seq + Window
             const flags = [];
-            if (packet.tcp.syn) flags.push('SYN');
-            if (packet.tcp.ack) flags.push('ACK');
-            if (packet.tcp.fin) flags.push('FIN');
-            if (packet.tcp.rst) flags.push('RST');
-            if (packet.tcp.psh) flags.push('PSH');
-            info = `${packet.tcp.src_port} → ${packet.tcp.dst_port} [${flags.join(', ')}] Seq=${packet.tcp.seq}`;
+            if (packet.tcp.syn) flags.push('S');
+            if (packet.tcp.ack) flags.push('A');
+            if (packet.tcp.fin) flags.push('F');
+            if (packet.tcp.rst) flags.push('R');
+            if (packet.tcp.psh) flags.push('P');
+            info = `${packet.tcp.src_port}→${packet.tcp.dst_port} [${flags.join('')}] Seq=${packet.tcp.seq} Win=${packet.tcp.window_size}`;
         } else if (packet.udp) {
-            info = `${packet.udp.src_port} → ${packet.udp.dst_port}`;
+            info = `${packet.udp.src_port}→${packet.udp.dst_port} Len=${packet.udp.length}`;
+        }
+
+        // IP TTL/Flags
+        if (packet.ip) {
+            info += ` (TTL=${packet.ip.ttl})`;
         }
 
         // Timestamp relative to first packet in global capture? 
@@ -73,6 +82,7 @@ export function renderPacketList(packets, containerId) {
             <td class="mono">${packet.ip?.src || 'L2'}</td>
             <td class="mono">${packet.ip?.dst || 'L2'}</td>
             <td><span class="badge proto-${proto.toLowerCase()}">${proto}</span></td>
+            <td class="mono" style="text-align: right">${packet.length}</td>
             <td class="info-cell" title="${info}">${info}</td>
         `;
 

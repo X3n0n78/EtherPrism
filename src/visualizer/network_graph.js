@@ -184,7 +184,7 @@ function getIconPath(type) {
 // Drag
 function drag(simulation) {
     function dragstarted(event) {
-        if (!event.active) simulation.alphaTarget(0.3).restart();
+        if (!event.active) simulation.alphaTarget(0.1).restart();
         event.subject.fx = event.subject.x;
         event.subject.fy = event.subject.y;
     }
