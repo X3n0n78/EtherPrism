@@ -1,11 +1,11 @@
-# EtherPrism 💎 v0.6.0-alpha
+# EtherPrism 💎 v0.6.1-alpha
 
 > **PCAP Visualizer Studio** - See the network in a new dimension.
 
 **EtherPrism** is a modern, high-performance web-based network traffic analyzer. It visualizes PCAP files purely in the browser using WebAssembly-like performance via Web Workers.
 
 ## Status 🚧
-**Current Version:** `v0.6.0-alpha`
+**Current Version:** `v0.6.1-alpha`
 **State:** Beta (Feature Complete for initial roadmap)
 
 ## Features ✨
