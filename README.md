@@ -6,7 +6,7 @@
 
 ## Status 🚧
 **Current Version:** `v0.6.0-alpha`
-**State:** Beta (Feature Complete for initial roadmap)
+**State:** Alpha (Feature Complete for initial roadmap)
 
 ## Features ✨
 
