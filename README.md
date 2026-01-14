@@ -4,7 +4,6 @@
 
 **EtherPrism** is a modern, web-based network traffic analyzer and visualization tool. Its goal is not deep packet inspection (Wireshark is there for that), but to quickly and visually map communication patterns and "flows".
 
-![Concept Art](https://via.placeholder.com/800x400?text=EtherPrism+Concept)
 
 ## Features ✨
 
