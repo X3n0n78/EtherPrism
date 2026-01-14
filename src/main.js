@@ -7,6 +7,11 @@ let currentView = 'graph'; // 'graph' or 'list'
 
 import { renderPacketList } from './visualizer/packet_list.js';
 import { renderTimeline } from './visualizer/timeline.js';
+import { StreamAnalyst } from './visualizer/stream_analyst.js';
+import { renderStevensGraph } from './visualizer/stevens_graph.js';
+import { renderHexView } from './visualizer/hex_view.js';
+import { SecurityEngine } from './core/security_engine.js';
+import { renderGeoMap } from './visualizer/geo_map.js';
 
 // --- Initialization ---
 console.log('EtherPrism Nexus Initializing...');
@@ -19,9 +24,18 @@ const btnCloseDetails = document.getElementById('btn-close-details');
 const detailsPanel = document.getElementById('details-panel');
 const statusBadge = document.getElementById('app-status');
 
+// Stream Modal Elements
+const streamModal = document.getElementById('stream-modal');
+const btnCloseStream = document.getElementById('btn-close-stream');
+const btnTabAscii = document.getElementById('btn-tab-ascii');
+const btnTabHtml = document.getElementById('btn-tab-html');
+const streamContent = document.getElementById('stream-content');
+const stevensContainer = 'stevens-graph-container';
+
 // View Toggles
 const btnViewGraph = document.getElementById('btn-view-graph');
 const btnViewList = document.getElementById('btn-view-list');
+const btnViewMap = document.getElementById('btn-view-map');
 
 // --- Event Subscriptions ---
 
@@ -66,6 +80,7 @@ bus.on('view:updated', () => {
     renderApp();
 });
 bus.on('filter:time', () => renderApp());
+bus.on('filter:search', () => renderApp());
 
 // Packet Selected Event (from packet list)
 window.addEventListener('packet-selected', (e) => {
@@ -76,28 +91,85 @@ window.addEventListener('packet-selected', (e) => {
 
 // --- User Interaction ---
 
+// Stream Modal Logic
+let currentStreamData = null;
+
+if (btnCloseStream) {
+    btnCloseStream.addEventListener('click', () => {
+        streamModal.classList.add('hidden');
+    });
+}
+
+if (btnTabAscii) {
+    btnTabAscii.addEventListener('click', () => {
+        btnTabAscii.classList.add('active');
+        btnTabHtml.classList.remove('active');
+        if (currentStreamData) streamContent.textContent = currentStreamData.text;
+    });
+}
+
+if (btnTabHtml) {
+    btnTabHtml.addEventListener('click', () => {
+        btnTabHtml.classList.add('active');
+        btnTabAscii.classList.remove('active');
+        if (currentStreamData) streamContent.innerHTML = currentStreamData.html;
+    });
+}
+
+function openStreamAnalysis(packet) {
+    try {
+        const allPackets = store.getPackets();
+        const analysis = StreamAnalyst.followTcpStream(packet, allPackets);
+        currentStreamData = analysis;
+
+        // Reset Tabs
+        btnTabAscii.classList.add('active');
+        btnTabHtml.classList.remove('active');
+        streamContent.textContent = analysis.text;
+
+        // Show Modal
+        streamModal.classList.remove('hidden');
+
+        // Render Stevens Graph
+        // Delay slightly for layout calc
+        setTimeout(() => {
+            renderStevensGraph(analysis, stevensContainer);
+        }, 100);
+
+    } catch (e) {
+        console.error(e);
+        alert("Stream Analysis Failed: " + e.message);
+    }
+}
+
 // View Switching
 btnViewGraph.addEventListener('click', () => switchView('graph'));
 btnViewList.addEventListener('click', () => switchView('list'));
+if (btnViewMap) btnViewMap.addEventListener('click', () => switchView('map'));
 
 function switchView(view) {
     currentView = view;
-    // Update Buttons
-    if (view === 'graph') {
-        btnViewGraph.classList.add('active');
-        btnViewGraph.style.opacity = '1';
-        btnViewGraph.style.background = 'rgba(34, 211, 238, 0.1)';
-        btnViewList.classList.remove('active');
-        btnViewList.style.opacity = '0.7';
-        btnViewList.style.background = 'transparent';
-    } else {
-        btnViewList.classList.add('active');
-        btnViewList.style.opacity = '1';
-        btnViewList.style.background = 'rgba(34, 211, 238, 0.1)';
-        btnViewGraph.classList.remove('active');
-        btnViewGraph.style.opacity = '0.7';
-        btnViewGraph.style.background = 'transparent';
+    // Reset all
+    [btnViewGraph, btnViewList, btnViewMap].forEach(btn => {
+        if (btn) {
+            btn.classList.remove('active');
+            btn.style.opacity = '0.7';
+            btn.style.background = 'transparent';
+        }
+    });
+
+    // Set active
+    let activeBtn;
+    if (view === 'graph') activeBtn = btnViewGraph;
+    else if (view === 'list') activeBtn = btnViewList;
+    else if (view === 'map') activeBtn = btnViewMap;
+
+    if (activeBtn) {
+        activeBtn.classList.add('active');
+        activeBtn.style.opacity = '1';
+        activeBtn.style.background = 'rgba(34, 211, 238, 0.1)';
     }
+
     renderApp();
 }
 
@@ -140,11 +212,6 @@ btnCloseDetails.addEventListener('click', () => {
 async function handleFileSelect(file) {
     if (!file) return;
     store.setFile(file);
-
-    // Reuse existing worker logic from store/main (simplified here for now)
-    // For this plan, we'll try to reuse the existing Worker infrastructure but call it from here
-    // or instantiate it directly.
-    // To match the plan, we should refactor PCAP logic, but for immediate UI wiring, let's reuse the Worker method.
 
     try {
         const arrayBuffer = await readFileAsArrayBuffer(file);
@@ -189,18 +256,54 @@ function renderApp() {
     const packets = store.getPackets();
     if (packets.length === 0) return;
 
-    // Apply Filters (Basic Time Filter)
+    // Apply Time Filter
     let activePackets = packets;
     if (store.state.filter.timeStart) {
-        activePackets = packets.filter(p => p.timestamp >= store.state.filter.timeStart && p.timestamp <= store.state.filter.timeEnd);
+        activePackets = activePackets.filter(p => p.timestamp >= store.state.filter.timeStart && p.timestamp <= store.state.filter.timeEnd);
     }
 
+    // Apply Search Filter (Case insensitive)
+    const searchTerm = store.state.filter.searchTerm ? store.state.filter.searchTerm.toLowerCase() : '';
+    if (searchTerm) {
+        activePackets = activePackets.filter(p => {
+            const src = p.ip?.src || '';
+            const dst = p.ip?.dst || '';
+            const proto = (p.tcp ? 'tcp' : (p.udp ? 'udp' : (p.icmp ? 'icmp' : '')));
+
+            // Basic searching - extend as needed
+            if (src.includes(searchTerm) || dst.includes(searchTerm)) return true;
+            if (proto.includes(searchTerm)) return true;
+
+            // Info field search
+            let info = '';
+            if (p.app) info = p.app.info;
+            // else if (p.tcp) ... (reconstruct info string if needed, or search ports)
+            if (info && info.toLowerCase().includes(searchTerm)) return true;
+
+            return false;
+        });
+    }
+
+    // Run Security Scan
+    const alerts = SecurityEngine.scan(activePackets);
+
     if (currentView === 'graph') {
-        const flows = store.getFlows().filter(f => !store.getHiddenNodes().has(f.source) && !store.getHiddenNodes().has(f.target));
+        const flows = store.getFlows().filter(f => {
+            const hidden = store.getHiddenNodes().has(f.source) || store.getHiddenNodes().has(f.target);
+            if (hidden) return false;
+
+            if (searchTerm) {
+                return f.source.includes(searchTerm) || f.target.includes(searchTerm);
+            }
+            return true;
+        });
+
         renderNetworkGraph(flows, 'visualization-container',
             (type, data) => store.updateSelection(type, data),
             (id) => store.hideNode(id)
         );
+    } else if (currentView === 'map') {
+        renderGeoMap(activePackets, 'visualization-container');
     } else {
         renderPacketList(activePackets, 'visualization-container', packets);
     }
@@ -211,12 +314,17 @@ function renderApp() {
     });
 
     // Update Sidebar Stats
-    updateSidebarStats();
+    updateSidebarStats(activePackets, alerts);
 }
 
-function updateSidebarStats() {
-    const flows = store.getFlows();
-    const packets = store.getPackets();
+function updateSidebarStats(packets, alerts = []) {
+    // If no packets passed (initial call), use main store
+    if (!packets) packets = store.getPackets();
+
+    // We can't easily get flows for filtered packets without re-analyzing, 
+    // so for now just show packet stats or total flows.
+    // Let's show visible packet count.
+
     const statsContainer = document.getElementById('sidebar-stats');
 
     let tcp = 0, udp = 0;
@@ -225,6 +333,25 @@ function updateSidebarStats() {
         if (p.udp) udp++;
     });
 
+    // Calculate total Flows just for context (or filter them if we want)
+    const totalFlowsCount = store.getFlows().length;
+
+    // Security Alerts HTML
+    let alertsHtml = '';
+    if (alerts && alerts.length > 0) {
+        alertsHtml = `
+            <div class="glass-panel" style="margin-top:1rem; border-color:var(--accent-warn);">
+                <div style="font-size:0.8rem; color:var(--accent-warn); font-weight:700; margin-bottom:5px;">THREATS DETECTED (${alerts.length})</div>
+                <div style="max-height:150px; overflow:auto; font-size:0.75rem;">
+                    ${alerts.map(a => `<div style="margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid rgba(255,255,255,0.1); color:var(--text-secondary);">
+                        <span style="color:var(--accent-danger)">${a.type}</span><br>
+                        Src: ${a.source}
+                    </div>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+
     statsContainer.innerHTML = `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; text-align:center;">
             <div class="glass-panel" style="padding:10px;">
@@ -232,20 +359,22 @@ function updateSidebarStats() {
                 <div style="font-size:0.7rem; color:var(--text-secondary);">PACKETS</div>
             </div>
             <div class="glass-panel" style="padding:10px;">
-                <div style="font-size:1.5rem; color:var(--accent-blue); font-weight:700;">${flows.length.toLocaleString()}</div>
-                <div style="font-size:0.7rem; color:var(--text-secondary);">FLOWS</div>
+                <div style="font-size:1.5rem; color:var(--accent-blue); font-weight:700;">${totalFlowsCount.toLocaleString()}</div>
+                <div style="font-size:0.7rem; color:var(--text-secondary);">TOTAL FLOWS</div>
             </div>
         </div>
         
         <div class="glass-panel" style="margin-top:1rem;">
              <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
                 <span style="font-size:0.8rem; color:var(--text-secondary);">TCP Traffic</span>
-                <span style="font-size:0.8rem; color:var(--accent-cyan);">${Math.round(tcp / packets.length * 100)}%</span>
+                <span style="font-size:0.8rem; color:var(--accent-cyan);">${Math.round(tcp / (packets.length || 1) * 100)}%</span>
              </div>
              <div style="width:100%; height:4px; background:rgba(255,255,255,0.1); border-radius:2px; overflow:hidden;">
-                <div style="width:${Math.round(tcp / packets.length * 100)}%; height:100%; background:var(--accent-cyan);"></div>
+                <div style="width:${Math.round(tcp / (packets.length || 1) * 100)}%; height:100%; background:var(--accent-cyan);"></div>
              </div>
         </div>
+
+        ${alertsHtml}
     `;
 }
 
@@ -281,11 +410,32 @@ function renderDetails(selected) {
         `;
     } else if (selected.type === 'packet') {
         const p = selected.data;
+
+        let actions = '';
+        if (p.tcp) {
+            actions = `<button id="btn-follow" class="btn-neon" style="width:100%; margin-bottom:1rem;">Follow Stream</button>`;
+        }
+
         container.innerHTML = `
             <div style="font-size:1rem; margin-bottom:0.5rem; color:white;">Packet #${p.index !== undefined ? p.index + 1 : '?'}</div>
+            ${actions}
             <div class="glass-panel" style="font-family:var(--font-mono); font-size:0.8rem; overflow:auto;">
-                <pre style="margin:0; color:var(--accent-cyan);">${JSON.stringify(p, null, 2)}</pre>
+                 <div id="hex-view-container">Loading Hex...</div>
+            </div>
+            <!-- Raw JSON fallback -->
+             <div class="glass-panel" style="font-family:var(--font-mono); font-size:0.7rem; margin-top:10px; opacity:0.6;">
+                 <pre style="margin:0;">${JSON.stringify(p, null, 2)}</pre>
             </div>
         `;
+
+        // Render Hex View
+        const hexContainer = container.querySelector('#hex-view-container');
+        if (hexContainer) renderHexView(p, hexContainer);
+
+        // Bind Actions
+        const btnFollow = container.querySelector('#btn-follow');
+        if (btnFollow) {
+            btnFollow.addEventListener('click', () => openStreamAnalysis(p));
+        }
     }
 }

@@ -1,46 +1,43 @@
-# EtherPrism 💎 v0.6.1-alpha
+# EtherPrism Nexus
 
-> **PCAP Visualizer Studio** - See the network in a new dimension.
+**EtherPrism Nexus** is a next-generation network traffic analyzer featuring a cyberpunk aesthetic and advanced visualization capabilities. Built for security analysts and network engineers who demand both performance and style.
 
-**EtherPrism** is a modern, high-performance web-based network traffic analyzer. It visualizes PCAP files purely in the browser using WebAssembly-like performance via Web Workers.
+## Features
 
-## Status 🚧
-**Current Version:** `v0.6.1-alpha`
-**State:** Beta (Feature Complete for initial roadmap)
+### 🔍 Deep Dive Analyst
+- **TCP Stream Reassembly**: Reconstruct and view complete TCP streams in ASCII or HTML.
+- **Stevens Graph**: Visualize sequence numbers over time to identify congestion and retransmissions.
+- **Hex Editor**: Synchronized Hex/ASCII view for precise packet inspection.
 
-## Features ✨
+### 🌍 CyberMap & Security
+- **GeoIP Visualization**: Interactive 3D globe visualizing connection endpoints.
+- **Threat Detection**: Automated detection of Port Scans and DNS Tunneling.
+- **Security Dashboard**: Real-time alert feed integrated into the sidebar.
 
-### 🔍 Visualization & Analysis
-- **Advanced Network Graph**: Force-directed graph with semantic icons, glowing links, and physics-based interactions.
-- **Timeline View**: Interactive histogram to filter traffic by time segments.
-- **Deep Protocol Analysis**: Automatic detection of HTTP, DNS, TLS (SNI), and more.
-- **Statistical Dashboard**: 
-    - Protocol Distribution (Pie Chart)
-    - Top Talkers (Bar Chart)
+### 🚀 Turbo Core Information Capability
+- **Virtual Scrolling**: Smoothly handle capture files with 100,000+ packets.
+- **WebGL Rendering**: High-performance network graph visualization powered by D3 and PixiJS.
+- **Event-Driven Architecture**: Modular design for scalability and responsiveness.
 
-### 🚀 Performance & UX
-- **Web Worker Engine**: Multi-threaded parsing to prevent UI freezes with large files.
-- **Instant Filters**: Search by IP, protocol, or time range.
-- **Privacy First**: Files never leave your device.
-- **Professional UI**: Dark mode, glassmorphism design, and fluid animations.
+## Tech Stack
+- **Core**: Vanilla JS (ES Modules), Vite
+- **Visualizers**: D3.js (Graph, Timeline, Geo), PixiJS (WebGL), Three.js (planned)
+- **State Management**: Custom EventBus + Store Pattern
 
-## Technologies 🛠️
-- **Frontend**: Vanilla JS (ES Modules)
-- **Visualization**: D3.js (Graph, Timeline, Charts)
-- **Engine**: Custom Binary Parser (DataView) + Web Workers
-- **Build**: Vite
+## Quick Start
 
-## Installation 📦
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Start development server:
+   ```bash
+   npm run dev
+   ```
+3. Build for production:
+   ```bash
+   npm run build
+   ```
 
-```bash
-npm install
-npm run dev
-```
-
-## Roadmap Completion 🗺️
-- [x] PCAP Parsing Engine
-- [x] Network Graph Visualization
-- [x] Timeline & Filtering
-- [x] Protocol Analysis (L7)
-- [x] Statistical Dashboard
-- [x] Performance Optimization (Web Workers)
+## Usage
+Drop a `.pcap` file into the analysis zone to begin. Use the sidebar to filter traffic, switch views (Graph/List/Map), and dive deep into packet details.
