@@ -1,157 +1,104 @@
-export function renderPacketList(packets, containerId) {
+import { renderHexView } from './hex_view.js';
+
+export function renderPacketList(packets, containerId, allPackets = []) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // Clear and setup structure
+    // Structure
     container.innerHTML = `
-        <div class="packet-list-header">
-            <input type="text" id="packet-filter" placeholder="Filter packets..." class="packet-filter">
-            <span class="packet-count">${packets.length} packets</span>
-        </div>
-        <div class="packet-table-wrapper">
-            <table class="packet-table">
-                <thead>
-                    <tr>
-                        <th style="width: 50px">#</th>
-                        <th style="width: 70px">Time</th>
-                        <th style="width: 110px">Source</th>
-                        <th style="width: 110px">Dest</th>
-                        <th style="width: 50px">Proto</th>
-                        <th style="width: 50px">Len</th>
-                        <th>Info</th>
-                    </tr>
-                </thead>
-                <tbody id="packet-table-body"></tbody>
-            </table>
+        <div class="packet-list-container">
+            <div class="packet-list-header">
+                <div style="font-weight:600; color:var(--text-primary)">Packet Capture</div>
+                <div class="packet-count" style="color:var(--text-secondary)">${packets.length.toLocaleString()} events</div>
+            </div>
+            <div class="packet-table-wrapper">
+                <table class="packet-table">
+                    <thead>
+                        <tr>
+                            <th style="width:60px">No.</th>
+                            <th style="width:100px">Time</th>
+                            <th style="width:140px">Source</th>
+                            <th style="width:140px">Destination</th>
+                            <th style="width:80px">Proto</th>
+                            <th style="width:80px">Len</th>
+                            <th>Info</th>
+                        </tr>
+                    </thead>
+                    <tbody id="packet-table-body"></tbody>
+                </table>
+            </div>
         </div>
     `;
 
     const tbody = document.getElementById('packet-table-body');
-
     const fragment = document.createDocumentFragment();
 
-    packets.forEach((packet, index) => {
+    // Render limit for performance (virtual scrolling would be better for >10k)
+    const renderLimit = Math.min(packets.length, 2000);
+
+    for (let i = 0; i < renderLimit; i++) {
+        const packet = packets[i];
         const tr = document.createElement('tr');
-        tr.className = 'packet-row';
-        tr.dataset.index = index;
+        tr.dataset.index = i;
 
-        // Determine protocol string
+        // Proto Class
         let proto = 'ETH';
-        if (packet.tcp) proto = 'TCP';
-        else if (packet.udp) proto = 'UDP';
-        else if (packet.icmp) proto = 'ICMP';
-        else if (packet.imgp) proto = 'IGMP';
+        let protoClass = 'default';
+        if (packet.tcp) { proto = 'TCP'; protoClass = 'proto-tcp'; }
+        else if (packet.udp) { proto = 'UDP'; protoClass = 'proto-udp'; }
+        else if (packet.icmp) { proto = 'ICMP'; protoClass = 'proto-icmp'; }
+        else if (packet.app) { proto = packet.app.type; }
 
-        // Format Info
-        let info = ``;
-        if (packet.app) {
-            info = `${packet.app.type} ${packet.app.info}`;
-        } else if (packet.tcp) {
+        // Info
+        let info = '';
+        if (packet.app) info = packet.app.info;
+        else if (packet.tcp) {
             const flags = [];
-            if (packet.tcp.syn) flags.push('S');
-            if (packet.tcp.ack) flags.push('A');
-            if (packet.tcp.fin) flags.push('F');
-            if (packet.tcp.rst) flags.push('R');
-            if (packet.tcp.psh) flags.push('P');
-            info = `${packet.tcp.src_port}→${packet.tcp.dst_port} [${flags.join('')}] Seq=${packet.tcp.seq} Win=${packet.tcp.window_size}`;
+            if (packet.tcp.syn) flags.push('SYN');
+            if (packet.tcp.ack) flags.push('ACK');
+            if (packet.tcp.fin) flags.push('FIN');
+            if (packet.tcp.rst) flags.push('RST');
+            info = `${packet.tcp.src_port} → ${packet.tcp.dst_port} [${flags.join(',')}] Seq=${packet.tcp.seq}`;
         } else if (packet.udp) {
-            info = `${packet.udp.src_port}→${packet.udp.dst_port} Len=${packet.udp.length}`;
+            info = `${packet.udp.src_port} → ${packet.udp.dst_port} Len=${packet.udp.length}`;
         }
-
-        if (packet.ip) {
-            info += ` (TTL=${packet.ip.ttl})`;
-        }
-
-        const timeStr = (packet.timestamp / 1000000).toFixed(4);
 
         tr.innerHTML = `
-            <td>${index + 1}</td>
-            <td class="mono">${timeStr}</td>
-            <td class="mono">${packet.ip?.src || 'L2'}</td>
-            <td class="mono">${packet.ip?.dst || 'L2'}</td>
-            <td><span class="badge proto-${proto.toLowerCase()}">${proto}</span></td>
-            <td class="mono" style="text-align: right">${packet.length}</td>
-            <td class="info-cell" title="${info}">${info}</td>
+            <td>${i + 1}</td>
+            <td>${(packet.timestamp / 1000000).toFixed(6)}</td>
+            <td>${packet.ip?.src || 'L2'}</td>
+            <td>${packet.ip?.dst || 'L2'}</td>
+            <td><span class="badge-proto ${protoClass}">${proto}</span></td>
+            <td>${packet.length}</td>
+            <td style="max-width:400px; overflow:hidden; text-overflow:ellipsis;">${info}</td>
         `;
 
-        tr.onclick = (e) => {
-            // Check if already expanded
-            const nextRow = tr.nextSibling;
-            if (nextRow && nextRow.classList.contains('packet-detail-row')) {
-                nextRow.remove();
-                tr.classList.remove('selected');
-                return;
-            }
+        tr.onclick = () => {
+            // Dispatch event to main store via CustomEvent or Callback
+            // Ideally we shouldn't modify store directly from here without importing it, 
+            // but 'selection' is handled by the caller usually?
+            // For this impl, we'll mark selected visually and let the main app handle it via a new mechanism
+            // OR assume we can emit an event.
 
-            // Close other expansions
-            document.querySelectorAll('.packet-detail-row').forEach(row => {
-                row.previousSibling.classList.remove('selected');
-                row.remove();
-            });
-
+            // Update Visual Selection
+            tbody.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
             tr.classList.add('selected');
 
-            // Create expansion row
-            const detailRow = document.createElement('tr');
-            detailRow.className = 'packet-detail-row';
-            const detailCell = document.createElement('td');
-            detailCell.colSpan = 7;
-
-            // Render JSON content
-            detailCell.innerHTML = `
-                <div class="packet-detail-content">
-                    <pre class="json-view">${syntaxHighlight(JSON.stringify(packet, null, 2))}</pre>
-                </div>
-            `;
-
-            detailRow.appendChild(detailCell);
-
-            // Insert after current row
-            if (tr.nextSibling) {
-                tbody.insertBefore(detailRow, tr.nextSibling);
-            } else {
-                tbody.appendChild(detailRow);
-            }
+            // HACK: Dispatch global event for now to avoid circular dependencies if we imported store
+            // But actually we can just accept a callback in arguments (TODO for later)
+            // Using CustomEvent
+            window.dispatchEvent(new CustomEvent('packet-selected', { detail: packet }));
         };
 
         fragment.appendChild(tr);
-    });
+    }
 
     tbody.appendChild(fragment);
 
-    // Simple Filter Logic (rest stays same)
-    const filterInput = document.getElementById('packet-filter');
-    filterInput.addEventListener('input', (e) => {
-        const term = e.target.value.toLowerCase();
-        const rows = tbody.querySelectorAll('tr.packet-row');
-        rows.forEach(row => {
-            const text = row.innerText.toLowerCase();
-            row.style.display = text.includes(term) ? '' : 'none';
-            // Hide detail row if parent is hidden
-            if (row.style.display === 'none' && row.nextSibling && row.nextSibling.classList.contains('packet-detail-row')) {
-                row.nextSibling.style.display = 'none';
-            }
-        });
-    });
+    if (packets.length > renderLimit) {
+        const warning = document.createElement('tr');
+        warning.innerHTML = `<td colspan="7" style="text-align:center; padding:1rem; color:var(--text-muted)">... ${packets.length - renderLimit} mode packets hidden (Performance Limit) ...</td>`;
+        tbody.appendChild(warning);
+    }
 }
 
-// Remove showPacketDetails function as it is now inline
-
-function syntaxHighlight(json) {
-    json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
-        var cls = 'number';
-        if (/^"/.test(match)) {
-            if (/:$/.test(match)) {
-                cls = 'key';
-            } else {
-                cls = 'string';
-            }
-        } else if (/true|false/.test(match)) {
-            cls = 'boolean';
-        } else if (/null/.test(match)) {
-            cls = 'null';
-        }
-        return '<span class="' + cls + '">' + match + '</span>';
-    });
-}

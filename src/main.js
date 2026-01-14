@@ -1,569 +1,178 @@
 import './style.css';
+import { store } from './core/store.js';
+import { bus } from './core/event_bus.js';
 import { renderNetworkGraph } from './visualizer/network_graph.js';
-import { renderTimeline } from './visualizer/timeline.js';
-import { renderDashboard } from './visualizer/dashboard.js';
+// View State
+let currentView = 'graph'; // 'graph' or 'list'
+
 import { renderPacketList } from './visualizer/packet_list.js';
+import { renderTimeline } from './visualizer/timeline.js';
 
-// IMMEDIATE STATUS UPDATE - If this runs, JS is working
-const statusText = document.getElementById('status-text');
-const statusDot = document.getElementById('status-dot');
-if (statusText) statusText.textContent = "Initializing...";
+// --- Initialization ---
+console.log('EtherPrism Nexus Initializing...');
 
-// State
-const state = {
-    file: null,
-    packets: [],
-    flows: new Map(),
-    isProcessing: false,
-    selected: null,
-    hiddenNodes: new Set(),
-    hostnames: new Map()
-};
-
-// Elements
+// DOM Elements
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
-const browseBtn = document.querySelector('.btn-browse');
+const btnImport = document.getElementById('btn-import');
+const btnCloseDetails = document.getElementById('btn-close-details');
+const detailsPanel = document.getElementById('details-panel');
+const statusBadge = document.getElementById('app-status');
 
-// New UI Elements
-const controls = document.getElementById('controls');
-const btnReset = document.getElementById('btn-reset');
-const btnExport = document.getElementById('btn-export');
-const searchInput = document.getElementById('search-input');
-const sidePanel = document.getElementById('side-panel');
-const panelContent = document.getElementById('panel-content');
-const btnClosePanel = document.getElementById('btn-close-panel');
-const timelineContainer = document.getElementById('timeline-container');
-const visualizationContainer = document.getElementById('visualization-container');
+// View Toggles
+const btnViewGraph = document.getElementById('btn-view-graph');
+const btnViewList = document.getElementById('btn-view-list');
 
-// --- EVENT LISTENERS ---
+// --- Event Subscriptions ---
 
-// Global Error Handler
-window.onerror = function (message, source, lineno, colno, error) {
-    console.error('Global Error:', error);
-    if (statusText) statusText.textContent = `Error: ${message}`;
-    if (statusDot) statusDot.className = 'status-dot error';
-};
+store.getPackets(); // Init check
 
-// Global Drag Prevention
-window.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
-window.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); });
+bus.on('status:updated', (msg) => {
+    const dot = statusBadge.querySelector('.status-dot');
+    const text = statusBadge.childNodes[1]; // Text node
+    if (text) text.textContent = ` ${msg}`;
 
-// Drop Zone Events
-if (dropZone) {
-    dropZone.addEventListener('click', (e) => {
-        if (e.target !== browseBtn) fileInput.click();
-    });
+    // Simple pulse effect based on msg content
+    if (msg.includes('Reading') || msg.includes('Processing')) {
+        statusBadge.classList.add('processing');
+        dot.style.color = 'var(--accent-cyan)';
+    } else {
+        statusBadge.classList.remove('processing');
+        dot.style.color = 'var(--accent-success)';
+    }
+});
 
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.add('drag-over');
-        if (statusText) statusText.textContent = "Drop File Here";
-    });
+bus.on('state:updated', ({ key, value }) => {
+    if (key === 'isProcessing') {
+        if (value) dropZone.classList.add('hidden'); // Keep hidden during process
+    }
+});
 
-    dropZone.addEventListener('dragleave', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.remove('drag-over');
-        if (statusText) statusText.textContent = "System Active";
-    });
+bus.on('data:loaded', (packets) => {
+    dropZone.classList.add('hidden');
+    renderApp();
+});
 
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.remove('drag-over');
+bus.on('selection:changed', (selected) => {
+    if (selected) {
+        detailsPanel.classList.remove('collapsed');
+        renderDetails(selected);
+    } else {
+        detailsPanel.classList.add('collapsed');
+    }
+});
 
-        if (e.dataTransfer.files.length) {
-            handleFile(e.dataTransfer.files[0]);
-        }
-    });
+bus.on('view:updated', () => {
+    renderApp();
+});
+bus.on('filter:time', () => renderApp());
+
+// Packet Selected Event (from packet list)
+window.addEventListener('packet-selected', (e) => {
+    // console.log("Packet Selected", e.detail);
+    store.updateSelection('packet', e.detail);
+});
+
+
+// --- User Interaction ---
+
+// View Switching
+btnViewGraph.addEventListener('click', () => switchView('graph'));
+btnViewList.addEventListener('click', () => switchView('list'));
+
+function switchView(view) {
+    currentView = view;
+    // Update Buttons
+    if (view === 'graph') {
+        btnViewGraph.classList.add('active');
+        btnViewGraph.style.opacity = '1';
+        btnViewGraph.style.background = 'rgba(34, 211, 238, 0.1)';
+        btnViewList.classList.remove('active');
+        btnViewList.style.opacity = '0.7';
+        btnViewList.style.background = 'transparent';
+    } else {
+        btnViewList.classList.add('active');
+        btnViewList.style.opacity = '1';
+        btnViewList.style.background = 'rgba(34, 211, 238, 0.1)';
+        btnViewGraph.classList.remove('active');
+        btnViewGraph.style.opacity = '0.7';
+        btnViewGraph.style.background = 'transparent';
+    }
+    renderApp();
 }
 
-// File Input
-if (fileInput) {
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length) {
-            handleFile(e.target.files[0]);
-            fileInput.value = '';
-        }
-    });
-}
+// File Handling
+btnImport.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0]));
 
-// Buttons
-if (browseBtn) browseBtn.addEventListener('click', () => fileInput.click());
-if (btnClosePanel) btnClosePanel.addEventListener('click', closeSidePanel);
-if (btnReset) btnReset.addEventListener('click', resetApp);
-if (btnExport) btnExport.addEventListener('click', exportData);
-if (searchInput) {
-    searchInput.addEventListener('input', (e) => {
-        const query = e.target.value.trim();
-        if (!query) return;
-        const match = Array.from(state.flows.values()).find(f =>
-            f.source.includes(query) || f.target.includes(query)
-        );
-        if (match) {
-            const ip = match.source.includes(query) ? match.source : match.target;
-            handleSelection('node', { id: ip });
-        }
-    });
-}
+// Drop Zone
+window.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); });
+window.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); });
+
+dropZone.addEventListener('dragover', (e) => {
+    e.dataTransfer.dropEffect = 'copy';
+    dropZone.style.background = 'rgba(34, 211, 238, 0.1)';
+});
+
+dropZone.addEventListener('dragleave', () => {
+    dropZone.style.background = '';
+});
+
+dropZone.addEventListener('drop', (e) => {
+    dropZone.style.background = '';
+    const files = e.dataTransfer.files;
+    if (files.length) handleFileSelect(files[0]);
+});
+
+// Sidebar Controls
+document.getElementById('search-input').addEventListener('input', (e) => {
+    store.updateSearch(e.target.value);
+});
+
+// Details Panel
+btnCloseDetails.addEventListener('click', () => {
+    store.updateSelection(null, null);
+});
 
 
-// --- LOGIC ---
+// --- Core Logic ---
 
-async function handleFile(file) {
-    console.log('Handling file:', file.name);
-    state.isProcessing = true;
-    if (statusText) statusText.textContent = `Reading...`;
-    if (statusDot) statusDot.className = 'status-dot active';
+async function handleFileSelect(file) {
+    if (!file) return;
+    store.setFile(file);
+
+    // Reuse existing worker logic from store/main (simplified here for now)
+    // For this plan, we'll try to reuse the existing Worker infrastructure but call it from here
+    // or instantiate it directly.
+    // To match the plan, we should refactor PCAP logic, but for immediate UI wiring, let's reuse the Worker method.
 
     try {
         const arrayBuffer = await readFileAsArrayBuffer(file);
 
-        // Try Dynamic Worker Import
-        try {
-            // We use a relative path URL for the worker. 
-            // Note: In Vite dev, this usually works. In some builds it might need adjustment.
-            const workerUrl = new URL('./worker/pcap.worker.js', import.meta.url);
-            const worker = new Worker(workerUrl, { type: 'module' });
+        // Dynamic import of worker to ensure path correctness
+        const workerUrl = new URL('./worker/pcap.worker.js', import.meta.url);
+        const worker = new Worker(workerUrl, { type: 'module' });
 
-            worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
+        worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
 
-            worker.onmessage = (e) => {
-                const { type, packets, message, error } = e.data;
-
-                if (type === 'status' || type === 'progress') {
-                    statusText.textContent = message;
-                } else if (type === 'complete') {
-                    processPackets(packets);
-                    worker.terminate();
-                } else if (type === 'error') {
-                    console.warn('Worker error:', error);
-                    worker.terminate();
-                    handleFileSynchronous(file);
-                }
-            };
-
-            worker.onerror = (err) => {
-                console.error('Worker startup error:', err);
+        worker.onmessage = (e) => {
+            const { type, packets, message } = e.data;
+            if (type === 'status' || type === 'progress') {
+                bus.emit('status:updated', message);
+            } else if (type === 'complete') {
+                store.setPackets(packets);
                 worker.terminate();
-                handleFileSynchronous(file);
-            };
-
-        } catch (workerErr) {
-            console.warn('Worker init failed:', workerErr);
-            handleFileSynchronous(file);
-        }
+            } else if (type === 'error') {
+                console.error(e.data.error);
+                bus.emit('status:updated', "Error: " + e.data.error);
+                worker.terminate();
+            }
+        };
 
     } catch (err) {
         console.error(err);
-        if (statusText) statusText.textContent = 'Error: ' + err.message;
-        if (statusDot) statusDot.className = 'status-dot error';
-        state.isProcessing = false;
+        bus.emit('status:updated', 'Error loading file');
     }
-}
-
-async function handleFileSynchronous(file) {
-    console.log('Switching to Synchronous Mode');
-    if (statusText) statusText.textContent = `Parsing (Sync Mode)...`;
-
-    // Helper to read file again
-    const arrayBuffer = await readFileAsArrayBuffer(file);
-
-    try {
-        // Dynamic import logic
-        const { PcapParser } = await import('./parser/pcap.js');
-        const { ProtocolParser } = await import('./parser/protocol.js');
-
-        const pcap = new PcapParser(arrayBuffer);
-        const rawPackets = pcap.parse();
-
-        const packets = rawPackets.map(raw => {
-            const decoded = ProtocolParser.parse(raw.data);
-            return { ...raw, ...decoded };
-        });
-
-        processPackets(packets);
-
-    } catch (e) {
-        if (statusText) statusText.textContent = 'Sync Parse Error: ' + e.message;
-        if (statusDot) statusDot.className = 'status-dot error';
-        state.isProcessing = false;
-        console.error(e);
-    }
-}
-
-function processPackets(packets) {
-    state.packets = packets;
-    state.flows = new Map();
-    state.hostnames = new Map();
-    state.hiddenNodes = new Set();
-
-    packets.forEach(packet => {
-        if (packet.ip) {
-            const key = `${packet.ip.src}->${packet.ip.dst}`;
-
-            if (!state.flows.has(key)) {
-                state.flows.set(key, {
-                    source: packet.ip.src,
-                    target: packet.ip.dst,
-                    value: 0,
-                    count: 0,
-                    protocolCounts: {},
-                    packets: []
-                });
-            }
-
-            const flow = state.flows.get(key);
-            flow.value += packet.length;
-            flow.count += 1;
-            flow.packets.push(packet);
-
-            const proto = packet.tcp ? 'TCP' : (packet.udp ? 'UDP' : 'Other');
-            flow.protocolCounts[proto] = (flow.protocolCounts[proto] || 0) + 1;
-
-            if (packet.app) {
-                if (!flow.appInfo) flow.appInfo = new Set();
-                flow.appInfo.add(packet.app.info);
-                flow.appType = packet.app.type;
-
-                if (packet.app.type === 'TLS' && packet.app.info.startsWith('SNI: ')) {
-                    const hostname = packet.app.info.replace('SNI: ', '');
-                    state.hostnames.set(packet.ip.dst, hostname);
-                }
-            }
-        }
-    });
-
-    state.isProcessing = false;
-    statusText.textContent = `Analysis Complete. Flows: ${state.flows.size}`;
-    statusDot.className = 'status-dot';
-
-    renderApp();
-}
-
-function renderApp() {
-    dropZone.classList.add('hidden');
-    visualizationContainer.classList.remove('hidden');
-
-    if (controls) controls.classList.remove('hidden');
-    if (timelineContainer) {
-        timelineContainer.classList.remove('hidden');
-        renderTimeline(state.packets, 'timeline-container', handleTimelineBrush);
-    }
-
-    const activeFlows = state.filteredFlows || state.flows;
-    let flowData = Array.from(activeFlows.values());
-
-    if (state.hiddenNodes && state.hiddenNodes.size > 0) {
-        flowData = flowData.filter(f => !state.hiddenNodes.has(f.source) && !state.hiddenNodes.has(f.target));
-    }
-
-    updateResetButton();
-
-    if (flowData.length === 0) {
-        visualizationContainer.innerHTML = '<p class="empty-msg">No flows in selection.</p>';
-        return;
-    }
-
-    renderNetworkGraph(flowData, 'visualization-container', handleSelection, handleHideNode);
-}
-
-function updateResetButton() {
-    let resetBtn = document.getElementById('reset-visibility-btn');
-    if (state.hiddenNodes && state.hiddenNodes.size > 0) {
-        if (!resetBtn) {
-            resetBtn = document.createElement('button');
-            resetBtn.id = 'reset-visibility-btn';
-            resetBtn.className = 'control-btn';
-            resetBtn.title = "Restore hidden nodes";
-            resetBtn.onclick = resetHiddenNodes;
-            controls.appendChild(resetBtn);
-        }
-        resetBtn.textContent = `Show Hidden (${state.hiddenNodes.size})`;
-        resetBtn.style.display = 'inline-flex';
-    } else {
-        if (resetBtn) resetBtn.style.display = 'none';
-    }
-
-    let statsBtn = document.getElementById('stats-btn');
-    if (!statsBtn) {
-        statsBtn = document.createElement('button');
-        statsBtn.id = 'stats-btn';
-        statsBtn.className = 'control-btn';
-        statsBtn.textContent = '📊 Statistics';
-        statsBtn.onclick = () => renderDashboard(state.packets, 'dashboard-container', () => { });
-        controls.appendChild(statsBtn);
-    }
-}
-
-function resetHiddenNodes() {
-    state.hiddenNodes.clear();
-    renderApp();
-}
-
-function handleHideNode(nodeId) {
-    if (!state.hiddenNodes) state.hiddenNodes = new Set();
-    state.hiddenNodes.add(nodeId);
-    renderApp();
-}
-
-let brushTimeout;
-function handleTimelineBrush(start, end) {
-    if (brushTimeout) clearTimeout(brushTimeout);
-    brushTimeout = setTimeout(() => {
-        applyTimeFilter(start, end);
-    }, 100);
-}
-
-function applyTimeFilter(start, end) {
-    if (start === null || end === null) {
-        state.filteredFlows = null;
-        renderAppFiltered();
-        return;
-    }
-
-    const filteredPackets = state.packets.filter(p => p.timestamp >= start && p.timestamp <= end);
-    const newFlows = new Map();
-
-    filteredPackets.forEach(p => {
-        if (p.ip) {
-            const key = `${p.ip.src}->${p.ip.dst}`;
-            if (!newFlows.has(key)) {
-                newFlows.set(key, {
-                    source: p.ip.src,
-                    target: p.ip.dst,
-                    value: 0,
-                    count: 0,
-                    protocolCounts: {},
-                    packets: []
-                });
-            }
-            const flow = newFlows.get(key);
-            flow.value += p.length;
-            flow.count += 1;
-            flow.packets.push(p);
-
-            const proto = p.tcp ? 'TCP' : (p.udp ? 'UDP' : 'Other');
-            flow.protocolCounts[proto] = (flow.protocolCounts[proto] || 0) + 1;
-        }
-    });
-
-    state.filteredFlows = newFlows;
-    renderAppFiltered();
-}
-
-function renderAppFiltered() {
-    const activeFlows = state.filteredFlows || state.flows;
-    let flowData = Array.from(activeFlows.values());
-
-    if (state.hiddenNodes && state.hiddenNodes.size > 0) {
-        flowData = flowData.filter(f => !state.hiddenNodes.has(f.source) && !state.hiddenNodes.has(f.target));
-    }
-
-    updateResetButton();
-
-    if (flowData.length === 0) {
-        visualizationContainer.innerHTML = '<p class="empty-msg">No flows in selection.</p>';
-        return;
-    }
-    renderNetworkGraph(flowData, 'visualization-container', handleSelection, handleHideNode);
-}
-
-
-
-function handleSelection(type, data) {
-    if (!type) {
-        closeSidePanel();
-        return;
-    }
-
-    state.selected = { type, data };
-    showSidePanel(type, data);
-}
-
-function showSidePanel(type, data) {
-    if (!sidePanel) return;
-
-    sidePanel.classList.remove('hidden');
-
-    // Structure with Tabs
-    sidePanel.innerHTML = `
-        <div class="panel-header">
-            <h3 id="panel-title">Details</h3>
-            <button id="btn-close-panel" class="btn-close">&times;</button>
-        </div>
-        <div class="panel-tabs">
-            <button class="panel-tab active" data-tab="stats">Stats</button>
-            <button class="panel-tab" data-tab="packets" id="tab-packets">Packets</button>
-        </div>
-        <div class="panel-content" id="panel-content">
-            <!-- Content Injected Here -->
-        </div>
-    `;
-
-    // Re-attach close listener
-    document.getElementById('btn-close-panel').onclick = closeSidePanel;
-
-    // Tab Listeners
-    const tabs = sidePanel.querySelectorAll('.panel-tab');
-    tabs.forEach(tab => {
-        tab.onclick = () => {
-            tabs.forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            renderPanelContent(type, data, tab.dataset.tab);
-        };
-    });
-
-    // Initial Render
-    renderPanelContent(type, data, 'stats');
-}
-
-function renderPanelContent(type, data, tabName) {
-    const container = document.getElementById('panel-content');
-    const title = document.getElementById('panel-title');
-
-    // Retrieve Flow or Node Data
-    let flow = null;
-    let nodeIp = null;
-
-    if (type === 'link') {
-        flow = state.flows.get(`${data.source.id}->${data.target.id}`) ||
-            state.flows.get(`${data.source}->${data.target}`) || data;
-        title.textContent = "Flow Details";
-    } else {
-        nodeIp = data.id;
-        title.textContent = `Host: ${nodeIp}`;
-    }
-
-    if (tabName === 'packets') {
-        let packetsToShow = [];
-        if (type === 'link' && flow) {
-            packetsToShow = flow.packets || [];
-        } else if (type === 'node' && nodeIp) {
-            // Aggregate all packets for this node
-            packetsToShow = state.packets.filter(p =>
-                (p.ip && p.ip.src === nodeIp) || (p.ip && p.ip.dst === nodeIp)
-            );
-        }
-        renderPacketList(packetsToShow, 'panel-content');
-        return;
-    }
-
-    // Render Stats (Classic View)
-    let content = '';
-
-    if (type === 'node') {
-        const hostname = state.hostnames.get(nodeIp) || 'Unresolved';
-        const hostnameColor = hostname === 'Unresolved' ? 'var(--text-muted)' : 'var(--accent-cyan)';
-
-        let totalSent = 0;
-        let totalRecv = 0;
-        let sentPackets = 0;
-        let recvPackets = 0;
-        const protocols = {};
-
-        state.flows.forEach(f => {
-            if (f.source === nodeIp) {
-                totalSent += f.value;
-                sentPackets += f.count;
-                Object.keys(f.protocolCounts).forEach(p => protocols[p] = (protocols[p] || 0) + f.protocolCounts[p]);
-            }
-            if (f.target === nodeIp) {
-                totalRecv += f.value;
-                recvPackets += f.count;
-                Object.keys(f.protocolCounts).forEach(p => protocols[p] = (protocols[p] || 0) + f.protocolCounts[p]);
-            }
-        });
-
-        // Top Protocols
-        const sortedProtos = Object.entries(protocols)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 3)
-            .map(([p, c]) => `${p} (${c})`)
-            .join(', ');
-
-        content = `
-            <div class="panel-stat"><label>Hostname</label><span style="color:${hostnameColor}">${hostname}</span></div>
-            <hr style="border-color:rgba(255,255,255,0.1); margin: 1rem 0;">
-            <div class="panel-stat"><label>Total Traffic</label><span>${formatBytes(totalSent + totalRecv)}</span></div>
-            <div class="panel-stat"><label>Sent</label><span>${formatBytes(totalSent)} (${sentPackets} pkts)</span></div>
-            <div class="panel-stat"><label>Received</label><span>${formatBytes(totalRecv)} (${recvPackets} pkts)</span></div>
-            <div class="panel-stat"><label>Top Protocols</label><span>${sortedProtos || '-'}</span></div>
-            <hr style="border-color:rgba(255,255,255,0.1); margin: 1rem 0;">
-            <div style="color:var(--accent-cyan); font-size:0.8rem;">Select 'Packets' tab for details</div>
-        `;
-    } else if (type === 'link' && flow) {
-        content = `
-            <div class="panel-stat"><label>Source</label><span>${flow.source?.id || flow.source}</span></div>
-            <div class="panel-stat"><label>Target</label><span>${flow.target?.id || flow.target}</span></div>
-            <div class="panel-stat"><label>Volume</label><span>${formatBytes(flow.value)}</span></div>
-            <div class="panel-stat"><label>Packets</label><span>${flow.count}</span></div>
-            <div class="panel-stat"><label>TCP</label><span>${flow.protocolCounts?.TCP || 0}</span></div>
-            <div class="panel-stat"><label>UDP</label><span>${flow.protocolCounts?.UDP || 0}</span></div>
-            ${renderAppInfo(flow)}
-        `;
-    }
-
-    container.innerHTML = content;
-}
-
-function renderAppInfo(flow) {
-    if (!flow.appInfo || flow.appInfo.size === 0) return '';
-    const items = Array.from(flow.appInfo).slice(0, 5);
-    const listHtml = items.map(item => `<div style="font-size:0.8rem; margin-top:4px; color:var(--text-secondary); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">• ${item}</div>`).join('');
-
-    return `
-        <hr style="border-color:rgba(255,255,255,0.1); margin: 1rem 0;">
-        <div style="color:var(--accent-primary); font-size:0.8rem; margin-bottom:0.5rem;">${flow.appType || 'Application'} Info</div>
-        ${listHtml}
-        ${flow.appInfo.size > 5 ? `<div style="font-size:0.7rem; color:var(--text-muted);">+ ${flow.appInfo.size - 5} more</div>` : ''}
-    `;
-}
-
-function closeSidePanel() {
-    if (sidePanel) sidePanel.classList.add('hidden');
-    state.selected = null;
-}
-
-function resetApp() {
-    state.file = null;
-    state.packets = [];
-    state.flows = new Map();
-    state.isProcessing = false;
-    state.selected = null;
-    state.filteredFlows = null;
-    state.hiddenNodes = new Set();
-    state.hostnames = new Map();
-
-    visualizationContainer.innerHTML = '';
-    visualizationContainer.classList.add('hidden');
-
-    if (controls) controls.classList.add('hidden');
-    if (sidePanel) sidePanel.classList.add('hidden');
-    if (timelineContainer) timelineContainer.classList.add('hidden');
-
-    dropZone.classList.remove('hidden');
-
-    statusText.textContent = 'System Active';
-    statusDot.className = 'status-dot';
-    fileInput.value = '';
-}
-
-function exportData() {
-    if (state.flows.size === 0) return;
-    const data = Array.from(state.flows.values());
-    const jsonString = JSON.stringify(data, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `etherprism-export-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
 }
 
 function readFileAsArrayBuffer(file) {
@@ -575,15 +184,108 @@ function readFileAsArrayBuffer(file) {
     });
 }
 
-function formatBytes(bytes, decimals = 2) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+function renderApp() {
+    // Check if data exists
+    const packets = store.getPackets();
+    if (packets.length === 0) return;
+
+    // Apply Filters (Basic Time Filter)
+    let activePackets = packets;
+    if (store.state.filter.timeStart) {
+        activePackets = packets.filter(p => p.timestamp >= store.state.filter.timeStart && p.timestamp <= store.state.filter.timeEnd);
+    }
+
+    if (currentView === 'graph') {
+        const flows = store.getFlows().filter(f => !store.getHiddenNodes().has(f.source) && !store.getHiddenNodes().has(f.target));
+        renderNetworkGraph(flows, 'visualization-container',
+            (type, data) => store.updateSelection(type, data),
+            (id) => store.hideNode(id)
+        );
+    } else {
+        renderPacketList(activePackets, 'visualization-container', packets);
+    }
+
+    // Render Timeline
+    renderTimeline(activePackets, 'timeline-container', (start, end) => {
+        store.updateTimeFilter(start, end);
+    });
+
+    // Update Sidebar Stats
+    updateSidebarStats();
 }
 
-// FINAL READY SIGNAL
-console.log("Main JS Loaded Successfully");
-if (statusText) statusText.textContent = "System Active";
+function updateSidebarStats() {
+    const flows = store.getFlows();
+    const packets = store.getPackets();
+    const statsContainer = document.getElementById('sidebar-stats');
+
+    let tcp = 0, udp = 0;
+    packets.forEach(p => {
+        if (p.tcp) tcp++;
+        if (p.udp) udp++;
+    });
+
+    statsContainer.innerHTML = `
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; text-align:center;">
+            <div class="glass-panel" style="padding:10px;">
+                <div style="font-size:1.5rem; color:var(--text-primary); font-weight:700;">${packets.length.toLocaleString()}</div>
+                <div style="font-size:0.7rem; color:var(--text-secondary);">PACKETS</div>
+            </div>
+            <div class="glass-panel" style="padding:10px;">
+                <div style="font-size:1.5rem; color:var(--accent-blue); font-weight:700;">${flows.length.toLocaleString()}</div>
+                <div style="font-size:0.7rem; color:var(--text-secondary);">FLOWS</div>
+            </div>
+        </div>
+        
+        <div class="glass-panel" style="margin-top:1rem;">
+             <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                <span style="font-size:0.8rem; color:var(--text-secondary);">TCP Traffic</span>
+                <span style="font-size:0.8rem; color:var(--accent-cyan);">${Math.round(tcp / packets.length * 100)}%</span>
+             </div>
+             <div style="width:100%; height:4px; background:rgba(255,255,255,0.1); border-radius:2px; overflow:hidden;">
+                <div style="width:${Math.round(tcp / packets.length * 100)}%; height:100%; background:var(--accent-cyan);"></div>
+             </div>
+        </div>
+    `;
+}
+
+function renderDetails(selected) {
+    const container = document.getElementById('details-content');
+    if (!selected) {
+        container.innerHTML = '';
+        return;
+    }
+
+    if (selected.type === 'node') {
+        const id = selected.data.id;
+        const hostname = store.getHostnames().get(id) || 'Unknown Host';
+        container.innerHTML = `
+            <div style="font-size:1.2rem; margin-bottom:0.5rem; color:white; font-family:var(--font-mono);">${id}</div>
+            <div style="color:var(--accent-magenta); font-size:0.9rem; margin-bottom:1rem;">${hostname}</div>
+            <div class="glass-panel">
+                <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:5px;">Role</div>
+                <div style="font-family:var(--font-mono); color:var(--accent-cyan);">${selected.data.type.toUpperCase()}</div>
+            </div>
+             <div class="glass-panel">
+                <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:5px;">Traffic</div>
+                <div>Sent: ${selected.data.value} bytes</div>
+                <div>Connections: ${selected.data.connections}</div>
+            </div>
+        `;
+    } else if (selected.type === 'link') {
+        container.innerHTML = `
+            <div style="font-size:1rem; margin-bottom:0.5rem; color:white;">Connection Details</div>
+            <div style="color:var(--text-secondary); font-size:0.8rem; font-family:var(--font-mono);">
+                ${selected.data.source.id} <br/> ↓ <br/> ${selected.data.target.id}
+            </div>
+        `;
+    } else if (selected.type === 'packet') {
+        const p = selected.data;
+        container.innerHTML = `
+            <div style="font-size:1rem; margin-bottom:0.5rem; color:white;">Packet #${p.index !== undefined ? p.index + 1 : '?'}</div>
+            <div class="glass-panel" style="font-family:var(--font-mono); font-size:0.8rem; overflow:auto;">
+                <pre style="margin:0; color:var(--accent-cyan);">${JSON.stringify(p, null, 2)}</pre>
+            </div>
+        `;
+    }
+}

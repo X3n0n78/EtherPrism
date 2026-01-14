@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EtherPrism Nexus</title>
+  <script type="module" crossorigin src="/assets/index-CR4u6U2M.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CDLsydbf.css">
+</head>
+
+<body>
+  <div id="app-shell">
+    <!-- Header -->
+    <header>
+      <div class="logo-section">
+        <div class="logo-text">ETHERPRISM <span style="font-weight:300; opacity:0.7">NEXUS</span></div>
+        <div class="status-badge" id="app-status">
+          <span class="status-dot">●</span> System Idle
+        </div>
+      </div>
+      <div class="actions">
+        <div class="view-toggles"
+          style="display:inline-flex; background:rgba(255,255,255,0.05); padding:2px; border-radius:6px; margin-right:1rem; border:1px solid var(--border-neon);">
+          <button class="btn-neon active" id="btn-view-graph"
+            style="margin:0; border:none; background:rgba(34, 211, 238, 0.1);">Graph</button>
+          <button class="btn-neon" id="btn-view-list" style="margin:0; border:none; opacity:0.7;">List</button>
+        </div>
+        <button class="btn-neon" id="btn-import">Import PCAP</button>
+        <button class="btn-neon" id="btn-settings">Settings</button>
+      </div>
+      <!-- Hidden Input -->
+      <input type="file" id="file-input" accept=".pcap,.pcapng,.cap" style="display:none" />
+    </header>
+
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="glass-panel">
+        <h3 style="margin:0 0 1rem 0; font-size:0.8rem; color:var(--text-scifi)">FILTERS</h3>
+        <input type="text" id="search-input" placeholder="Search IP / Protocol..."
+          style="width:100%; box-sizing:border-box; background:rgba(0,0,0,0.3); border:1px solid var(--border-neon); color:white; padding:8px; border-radius:4px; outline:none;">
+      </div>
+
+      <div class="glass-panel" style="flex:1; display:flex; flex-direction:column;">
+        <h3 style="margin:0 0 1rem 0; font-size:0.8rem; color:var(--text-scifi)">STATISTICS</h3>
+        <div id="sidebar-stats">
+          <!-- Dynamic Stats -->
+          <div style="font-size:0.8rem; color:var(--text-secondary); text-align:center; padding:2rem 0;">No Data Loaded
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Visualization -->
+    <main id="main-view">
+      <div id="drop-zone" class="drop-zone-overlay">
+        <div class="drop-content">
+          <div class="drop-icon">❖</div>
+          <h2 style="color:white; margin:0 0 0.5rem 0;">Initiate Analysis</h2>
+          <p style="color:var(--text-secondary); margin-bottom: 2rem;">Drag & Drop PCAP file or use Import</p>
+          <button class="btn-primary" onclick="document.getElementById('file-input').click()">Browse Files</button>
+        </div>
+      </div>
+      <div id="visualization-container" style="width:100%; height:100%;"></div>
+    </main>
+
+    <!-- Right Details Panel -->
+    <aside id="details-panel" class="collapsed">
+      <div
+        style="padding:1rem; border-bottom:1px solid var(--border-neon); display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0; font-size:0.9rem; color:var(--accent-cyan)">DETAILS</h3>
+        <button class="btn-neon" style="padding:2px 8px; font-size:12px;" id="btn-close-details">×</button>
+      </div>
+      <div id="details-content" style="flex:1; overflow-y:auto; padding:1rem;">
+        <!-- Content injected via JS -->
+      </div>
+    </aside>
+
+    <!-- Timeline -->
+    <section id="timeline-view">
+      <div id="timeline-container" style="width:100%; height:100%;"></div>
+    </section>
+  </div>
+
+  <!-- Scripts -->
+</body>
+
+</html>

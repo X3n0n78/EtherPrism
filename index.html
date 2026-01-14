@@ -1,85 +1,86 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EtherPrism | PCAP Visualizer</title>
-  <meta name="description" content="High-performance, browser-based PCAP visualizer using D3.js">
+  <title>EtherPrism Nexus</title>
 </head>
 
 <body>
-  <div id="app">
+  <div id="app-shell">
+    <!-- Header -->
     <header>
-      <div class="logo">
-        <span class="logo-icon">⬢</span>
-        <h1>EtherPrism <span class="version-tag">v0.6.1-alpha</span></h1>
+      <div class="logo-section">
+        <div class="logo-text">ETHERPRISM <span style="font-weight:300; opacity:0.7">NEXUS</span></div>
+        <div class="status-badge" id="app-status">
+          <span class="status-dot">●</span> System Idle
+        </div>
       </div>
-      <div class="status-bar" id="status-bar">
-        <div class="status-dot" id="status-dot"></div>
-        <span id="status-text">Ready</span>
+      <div class="actions">
+        <div class="view-toggles"
+          style="display:inline-flex; background:rgba(255,255,255,0.05); padding:2px; border-radius:6px; margin-right:1rem; border:1px solid var(--border-neon);">
+          <button class="btn-neon active" id="btn-view-graph"
+            style="margin:0; border:none; background:rgba(34, 211, 238, 0.1);">Graph</button>
+          <button class="btn-neon" id="btn-view-list" style="margin:0; border:none; opacity:0.7;">List</button>
+        </div>
+        <button class="btn-neon" id="btn-import">Import PCAP</button>
+        <button class="btn-neon" id="btn-settings">Settings</button>
       </div>
+      <!-- Hidden Input -->
+      <input type="file" id="file-input" accept=".pcap,.pcapng,.cap" style="display:none" />
     </header>
 
-    <main>
-      <!-- Controls (Reset/Export) -->
-      <div id="controls" class="controls hidden">
-        <input type="text" id="search-input" placeholder="Search IP..." class="search-input" />
-        <button id="btn-export" class="btn-icon" title="Export JSON">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-        </button>
-        <button id="btn-reset" class="btn-icon" title="New Analysis">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-            <path d="M3 3v5h5" />
-          </svg>
-        </button>
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="glass-panel">
+        <h3 style="margin:0 0 1rem 0; font-size:0.8rem; color:var(--text-scifi)">FILTERS</h3>
+        <input type="text" id="search-input" placeholder="Search IP / Protocol..."
+          style="width:100%; box-sizing:border-box; background:rgba(0,0,0,0.3); border:1px solid var(--border-neon); color:white; padding:8px; border-radius:4px; outline:none;">
       </div>
 
-      <!-- Side Panel (Interactivity) -->
-      <div id="side-panel" class="side-panel hidden">
-        <div class="panel-header">
-          <h3 id="panel-title">Details</h3>
-          <button id="btn-close-panel" class="btn-close">&times;</button>
-        </div>
-        <div class="panel-content" id="panel-content">
-          <!-- Dynamic Content -->
+      <div class="glass-panel" style="flex:1; display:flex; flex-direction:column;">
+        <h3 style="margin:0 0 1rem 0; font-size:0.8rem; color:var(--text-scifi)">STATISTICS</h3>
+        <div id="sidebar-stats">
+          <!-- Dynamic Stats -->
+          <div style="font-size:0.8rem; color:var(--text-secondary); text-align:center; padding:2rem 0;">No Data Loaded
+          </div>
         </div>
       </div>
+    </aside>
 
-      <div id="drop-zone" class="drop-zone">
-        <div class="icon-container">
-          <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="17 8 12 3 7 8" />
-            <line x1="12" y1="3" x2="12" y2="15" />
-          </svg>
+    <!-- Main Visualization -->
+    <main id="main-view">
+      <div id="drop-zone" class="drop-zone-overlay">
+        <div class="drop-content">
+          <div class="drop-icon">❖</div>
+          <h2 style="color:white; margin:0 0 0.5rem 0;">Initiate Analysis</h2>
+          <p style="color:var(--text-secondary); margin-bottom: 2rem;">Drag & Drop PCAP file or use Import</p>
+          <button class="btn-primary" onclick="document.getElementById('file-input').click()">Browse Files</button>
         </div>
-        <h2>Analyze Network Traffic</h2>
-        <p>Drag & Drop your <strong>.pcap</strong> file here</p>
-        <button class="btn-browse">Browse Files</button>
-        <input type="file" id="file-input" accept=".pcap,.cap" hidden />
       </div>
-
-      <div id="visualization-container" class="hidden">
-        <svg id="sankey-svg"></svg>
-      </div>
-      <div id="dashboard-container" class="hidden"></div> <!-- Dashboard Overlay -->
-
-      <!-- Timeline (Bottom Overlay) -->
-      <div id="timeline-container" class="timeline-container hidden">
-        <svg id="timeline-svg"></svg>
-      </div>
+      <div id="visualization-container" style="width:100%; height:100%;"></div>
     </main>
+
+    <!-- Right Details Panel -->
+    <aside id="details-panel" class="collapsed">
+      <div
+        style="padding:1rem; border-bottom:1px solid var(--border-neon); display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0; font-size:0.9rem; color:var(--accent-cyan)">DETAILS</h3>
+        <button class="btn-neon" style="padding:2px 8px; font-size:12px;" id="btn-close-details">×</button>
+      </div>
+      <div id="details-content" style="flex:1; overflow-y:auto; padding:1rem;">
+        <!-- Content injected via JS -->
+      </div>
+    </aside>
+
+    <!-- Timeline -->
+    <section id="timeline-view">
+      <div id="timeline-container" style="width:100%; height:100%;"></div>
+    </section>
   </div>
+
+  <!-- Scripts -->
   <script type="module" src="/src/main.js"></script>
 </body>
 

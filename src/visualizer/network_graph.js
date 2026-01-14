@@ -2,22 +2,20 @@ import * as d3 from 'd3';
 
 // Icon Paths (Lucide-like)
 const ICONS = {
-    // 24x24 ViewBox normalized to -12 -12 24 24 approx or just scale it
-    pc: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", // User
-    server: "M2 20h20 M2 4h20 M2 12h20 M2 4v16a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z M6 8h.01 M6 16h.01", // Rack
-    router: "M22 12h-4l-3 9L9 3l-3 9H2", // Activity/Pulse like router
-    globe: "M22 12A10 10 0 1 1 12 2a10 10 0 0 1 10 10z M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" // Globe
+    pc: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+    server: "M2 20h20 M2 4h20 M2 12h20 M2 4v16a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z M6 8h.01 M6 16h.01",
+    router: "M22 12h-4l-3 9L9 3l-3 9H2",
+    globe: "M22 12A10 10 0 1 1 12 2a10 10 0 0 1 10 10z M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"
 };
 
 export function renderNetworkGraph(flows, containerId, onSelection, onHideNode) {
     const container = document.getElementById(containerId);
-    if (!container) return; // Guard
+    if (!container) return;
 
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 600;
 
-    // Clear previous
-    container.innerHTML = '';
+    container.innerHTML = ''; // Clear previous
 
     // Remove existing context menu if any
     const existingMenu = document.getElementById('graph-context-menu');
@@ -43,7 +41,8 @@ export function renderNetworkGraph(flows, containerId, onSelection, onHideNode) 
     const links = flows.map(f => ({
         source: f.source,
         target: f.target,
-        value: f.value
+        value: f.value,
+        protocol: getDominantProtocol(f.protocolCounts)
     }));
 
     // Create SVG
@@ -54,24 +53,36 @@ export function renderNetworkGraph(flows, containerId, onSelection, onHideNode) 
         .attr('viewBox', [0, 0, width, height])
         .style('background', 'transparent');
 
+    // Define Glow Filter
+    const defs = svg.append("defs");
+    const filter = defs.append("filter")
+        .attr("id", "glow");
+    filter.append("feGaussianBlur")
+        .attr("stdDeviation", "2.5")
+        .attr("result", "coloredBlur");
+    const feMerge = filter.append("feMerge");
+    feMerge.append("feMergeNode").attr("in", "coloredBlur");
+    feMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
     // Simulation
     const simulation = d3.forceSimulation(nodes)
-        .force("link", d3.forceLink(links).id(d => d.id).distance(100))
-        .force("charge", d3.forceManyBody().strength(-400))
+        .force("link", d3.forceLink(links).id(d => d.id).distance(120))
+        .force("charge", d3.forceManyBody().strength(-300))
         .force("center", d3.forceCenter(width / 2, height / 2))
-        .force("collide", d3.forceCollide().radius(d => (d.value ? 25 : 10) + 5).iterations(2));
+        .force("collide", d3.forceCollide().radius(d => (d.value ? 30 : 15) + 10).iterations(2));
 
     const g = svg.append('g');
 
-    // Link Lines
+    // Link Lines with Neon effect
     const link = g.append('g')
-        .attr('stroke', '#334155')
-        .attr('stroke-opacity', 0.4)
+        .attr('stroke-opacity', 0.6)
         .selectAll('line')
         .data(links)
         .join('line')
-        .attr('stroke-width', d => Math.min(Math.sqrt(d.value) / 100, 3) + 0.5)
-        .attr('class', 'graph-link');
+        .attr('stroke', d => getLinkColor(d.protocol))
+        .attr('stroke-width', d => Math.min(Math.sqrt(d.value) / 100, 2) + 0.5)
+        .attr('class', 'graph-link')
+        .style('filter', 'url(#glow)'); // Add glow to links
 
     // Node Groups
     const node = g.append('g')
@@ -85,17 +96,18 @@ export function renderNetworkGraph(flows, containerId, onSelection, onHideNode) 
     // Halo (for important nodes)
     node.filter(d => d.type === 'server' || d.type === 'gateway')
         .append('circle')
-        .attr('r', 20)
-        .attr('fill', 'var(--accent-primary)')
-        .attr('opacity', 0.1)
+        .attr('r', 25)
+        .attr('fill', d => getNodeColor(d.type))
+        .attr('opacity', 0.15)
         .attr('class', 'halo');
 
-    // Icon Background
+    // Node Background Circle
     node.append('circle')
-        .attr('r', 12)
-        .attr('fill', 'var(--bg-card)')
+        .attr('r', 14)
+        .attr('fill', 'var(--bg-deep)')
         .attr('stroke', d => getNodeColor(d.type))
-        .attr('stroke-width', 2);
+        .attr('stroke-width', 2)
+        .style('filter', 'url(#glow)'); // Add glow to nodes
 
     // Icons
     node.append('path')
@@ -105,21 +117,29 @@ export function renderNetworkGraph(flows, containerId, onSelection, onHideNode) 
         .attr('stroke-width', 1.5)
         .attr('stroke-linecap', 'round')
         .attr('stroke-linejoin', 'round')
-        .attr('transform', 'scale(0.7) translate(-12, -12)'); // Center icon
+        .attr('transform', 'scale(0.8) translate(-12, -12)');
 
     // Text Label
     node.append('text')
         .text(d => d.id)
         .attr('x', 0)
-        .attr('y', 25)
+        .attr('y', 30)
         .attr('text-anchor', 'middle')
-        .attr('class', d => `graph-label ${d.type}`);
+        .attr('class', 'graph-label')
+        .style('fill', 'var(--text-scifi)')
+        .style('font-family', 'var(--font-mono)')
+        .style('font-size', '10px')
+        .style('opacity', 0.8);
 
     // Interactions
     node.on('click', (event, d) => {
         event.stopPropagation();
         if (onSelection) onSelection('node', d);
         hideContextMenu();
+
+        // Highlight effect
+        node.selectAll('circle').attr('stroke-width', 2);
+        d3.select(event.currentTarget).select('circle').attr('stroke-width', 4);
     });
 
     node.on('contextmenu', (event, d) => {
@@ -127,10 +147,10 @@ export function renderNetworkGraph(flows, containerId, onSelection, onHideNode) 
         showContextMenu(event, d, onSelection, onHideNode);
     });
 
-    // Deselect
     svg.on('click', () => {
         if (onSelection) onSelection(null, null);
         hideContextMenu();
+        node.selectAll('circle').attr('stroke-width', 2);
     });
 
     // Zoom
@@ -156,6 +176,28 @@ export function renderNetworkGraph(flows, containerId, onSelection, onHideNode) 
 }
 
 // Helpers
+function getDominantProtocol(counts) {
+    if (!counts) return 'other';
+    let max = 0;
+    let proto = 'other';
+    for (const [p, count] of Object.entries(counts)) {
+        if (count > max) {
+            max = count;
+            proto = p;
+        }
+    }
+    return proto;
+}
+
+function getLinkColor(proto) {
+    switch (proto) {
+        case 'TCP': return 'var(--accent-blue)';
+        case 'UDP': return 'var(--accent-success)';
+        case 'ICMP': return 'var(--accent-warn)';
+        default: return 'var(--text-secondary)';
+    }
+}
+
 function detectType(ip, connections) {
     if (ip.endsWith('.1') || ip.endsWith('.254')) return 'gateway';
     if (connections > 5) return 'server';
@@ -165,10 +207,10 @@ function detectType(ip, connections) {
 
 function getNodeColor(type) {
     switch (type) {
-        case 'gateway': return 'var(--accent-warning)';
-        case 'server': return 'var(--accent-danger)';
-        case 'wan': return 'var(--accent-purple, #a855f7)';
-        default: return 'var(--accent-primary)';
+        case 'gateway': return 'var(--accent-warn)';
+        case 'server': return 'var(--accent-magenta)';
+        case 'wan': return 'var(--accent-cyan)'; // Cyan used for external
+        default: return 'var(--accent-blue)';
     }
 }
 
@@ -184,60 +226,52 @@ function getIconPath(type) {
 // Drag
 function drag(simulation) {
     function dragstarted(event) {
-        if (!event.active) simulation.alphaTarget(0.1).restart();
+        if (!event.active) simulation.alphaTarget(0.3).restart();
         event.subject.fx = event.subject.x;
         event.subject.fy = event.subject.y;
     }
-
     function dragged(event) {
         event.subject.fx = event.x;
         event.subject.fy = event.y;
     }
-
     function dragended(event) {
         if (!event.active) simulation.alphaTarget(0);
         event.subject.fx = null;
         event.subject.fy = null;
     }
-
-    return d3.drag()
-        .on('start', dragstarted)
-        .on('drag', dragged)
-        .on('end', dragended);
+    return d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended);
 }
 
 // Context Menu Logic
 function showContextMenu(event, data, onSelection, onHideNode) {
-    hideContextMenu(); // Close existing
-
+    // ... (Keep existing simple)
+    // For brevity, using logic similar to previous but styled better via CSS
+    hideContextMenu();
     const menu = document.createElement('div');
     menu.id = 'graph-context-menu';
-    menu.className = 'context-menu';
+    menu.className = 'glass-panel';
+    menu.style.position = 'absolute';
     menu.style.left = `${event.pageX}px`;
     menu.style.top = `${event.pageY}px`;
+    menu.style.padding = '5px 0';
+    menu.style.zIndex = '1000';
 
+    // ... Add items
     const items = [
-        { label: '🔍 Focus Node', action: () => onSelection('node', data) },
-        { label: '📋 ‘Copy IP’', action: () => navigator.clipboard.writeText(data.id) },
-        { type: 'separator' },
-        { label: '👁️ Hide Node', action: () => { if (onHideNode) onHideNode(data.id); } }
+        { label: 'Focus Node', action: () => onSelection('node', data) },
+        { label: 'Hide Node', action: () => onHideNode(data.id) }
     ];
 
     items.forEach(item => {
-        if (item.type === 'separator') {
-            const sep = document.createElement('div');
-            sep.className = 'context-menu-separator';
-            menu.appendChild(sep);
-        } else {
-            const div = document.createElement('div');
-            div.className = 'context-menu-item';
-            div.textContent = item.label;
-            div.onclick = () => {
-                item.action();
-                hideContextMenu();
-            };
-            menu.appendChild(div);
-        }
+        const div = document.createElement('div');
+        div.textContent = item.label;
+        div.style.padding = '8px 16px';
+        div.style.cursor = 'pointer';
+        div.style.color = 'var(--text-primary)';
+        div.onmouseover = () => div.style.background = 'rgba(255,255,255,0.1)';
+        div.onmouseout = () => div.style.background = 'transparent';
+        div.onclick = () => { item.action(); hideContextMenu(); };
+        menu.appendChild(div);
     });
 
     document.body.appendChild(menu);

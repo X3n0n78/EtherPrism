@@ -66,20 +66,56 @@ export class ProtocolParser {
             const srcPort = packetData.getUint16(offset, false);
             const dstPort = packetData.getUint16(offset + 2, false);
 
-            result.transport = { srcPort, dstPort, proto: result.ip.proto === Protocols.IP.TCP ? 'TCP' : 'UDP' };
+            if (result.ip.proto === Protocols.IP.TCP) {
+                if (offset + 20 > packetData.byteLength) return result; // Min TCP Header
 
-            // Advance over Transport Header
-            // TCP Header Len is variable
-            let transportHeaderLen = 8; // UDP default
-            if (result.transport.proto === 'TCP') {
-                if (offset + 12 > packetData.byteLength) return result;
-                const dataOffset = (packetData.getUint8(offset + 12) >> 4) * 4;
-                transportHeaderLen = dataOffset;
-            }
+                const seq = packetData.getUint32(offset + 4, false);
+                const ack = packetData.getUint32(offset + 8, false);
+                const dataOffsetFlags = packetData.getUint16(offset + 12, false);
+                const dataOffset = (dataOffsetFlags >> 12) * 4;
+                const flags = dataOffsetFlags & 0x01FF; // Bottom 9 bits
 
-            const appDataOffset = offset + transportHeaderLen;
-            if (appDataOffset < packetData.byteLength) {
-                result.app = this.parseApplicationLayer(packetData, appDataOffset, result.transport.proto, srcPort, dstPort);
+                result.tcp = {
+                    src_port: srcPort,
+                    dst_port: dstPort,
+                    seq: seq,
+                    ack: ack,
+                    syn: !!(flags & 0x002),
+                    ack_flag: !!(flags & 0x010),
+                    fin: !!(flags & 0x001),
+                    rst: !!(flags & 0x004),
+                    psh: !!(flags & 0x008),
+                    urg: !!(flags & 0x020),
+                    flags: flags,
+                    payload_len: 0 // Calc later
+                };
+                result.transport = { srcPort, dstPort, proto: 'TCP' };
+
+                // Advance
+                const appDataOffset = offset + dataOffset;
+                // Calculate Payload Len
+                // Total Packet Len - IP Header - TCP Header (roughly, or just buffer len - offset)
+                // Better: buffer.byteLength - appDataOffset 
+                if (appDataOffset <= packetData.byteLength) {
+                    result.tcp.payload_len = packetData.byteLength - appDataOffset;
+                    result.app = this.parseApplicationLayer(packetData, appDataOffset, 'TCP', srcPort, dstPort);
+                }
+
+            } else if (result.ip.proto === Protocols.IP.UDP) {
+                if (offset + 8 > packetData.byteLength) return result;
+                const length = packetData.getUint16(offset + 4, false);
+
+                result.udp = {
+                    src_port: srcPort,
+                    dst_port: dstPort,
+                    length: length
+                };
+                result.transport = { srcPort, dstPort, proto: 'UDP' };
+
+                const appDataOffset = offset + 8;
+                if (appDataOffset < packetData.byteLength) {
+                    result.app = this.parseApplicationLayer(packetData, appDataOffset, 'UDP', srcPort, dstPort);
+                }
             }
         }
 
