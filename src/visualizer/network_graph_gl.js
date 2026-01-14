@@ -90,9 +90,6 @@ export class NetworkGraphRenderer {
         this.viewport = new PIXI.Container();
         this.viewport.sortableChildren = true;
 
-        // Center the viewport initially (optional, or rely on simulation centering)
-        // this.viewport.position.set(this.app.screen.width / 2, this.app.screen.height / 2);
-
         this.app.stage.addChild(this.viewport);
 
         // Layers
@@ -109,11 +106,6 @@ export class NetworkGraphRenderer {
         this.viewport.addChild(this.layers.links);
         this.viewport.addChild(this.layers.particles);
         this.viewport.addChild(this.layers.nodes);
-
-        // Apply Bloom Filter to heavily glowing elements (links + particles)
-        // Note: Filters can be expensive. We apply a simple Blur for "Glow" duplication or actual Bloom if performant.
-        // Let's mimic Bloom by duplication for checking performance, or use Pixi's AlphaFilter/BlurFilter combo.
-        // Ideally: `this.layers.links.filters = [new PIXI.BlurFilter(4)];` combined with additive blending.
 
         // Additive Blending for "Neon" look
         this.layers.links.blendMode = 'add';
@@ -193,7 +185,6 @@ export class NetworkGraphRenderer {
     }
 
     updatePositions() {
-        // Sync Sprite positions with Simulation Nodes
         this.nodes.forEach(node => {
             const sprite = this.nodeSprites.get(node.id);
             if (sprite) {
@@ -201,16 +192,12 @@ export class NetworkGraphRenderer {
                 sprite.y = node.y;
             }
         });
-
-        // We defer redraw to the main ticker to decouple physics rate from frame rate
     }
 
     tick(ticker) {
         // Redraw Lines
         const g = this.layers.links;
         g.clear();
-
-        // Animate Camera Inertia if needed (omitted for brevity)
 
         this.links.forEach(link => {
             const color = LINK_COLORS[link.protocol] || LINK_COLORS.DEFAULT;
@@ -228,15 +215,9 @@ export class NetworkGraphRenderer {
             if (alpha > 0.05) {
                 g.moveTo(link.source.x, link.source.y);
                 g.lineTo(link.target.x, link.target.y);
-                g.stroke({ width, color, alpha });
+                g.stroke({ width, color, alpha }); // v8 syntax
             }
         });
-
-        // Particle Logic (Advanced)
-        // Spawn particles based on traffic volume?
-        // Simple demo: small dots traveling along links
-        // We'll skip complex particle pooling for now to keep code safe, 
-        // but adding a simple pulsing effect on nodes could be nice.
     }
 
     // --- Interaction ---
@@ -251,15 +232,9 @@ export class NetworkGraphRenderer {
         let prevPos = null;
 
         stage.on('pointerdown', (e) => {
-            // Check if we clicked background
             if (e.target === stage || e.target === this.viewport) {
                 isDragging = true;
                 prevPos = { x: e.global.x, y: e.global.y };
-
-                // Deselect
-                // User Request: "Keep details open".
-                // Removing auto-deselect on background click/drag to prevent accidental closing.
-                // this.updateSelection(null); 
             }
         });
 
@@ -313,8 +288,6 @@ export class NetworkGraphRenderer {
         } else {
             if (this.selectedId !== node.id) {
                 sprite.scale.set(0.5);
-
-                // Dim if something else selected
                 if (this.selectedId) sprite.alpha = 0.1;
                 else sprite.alpha = 1;
             }
@@ -330,36 +303,41 @@ export class NetworkGraphRenderer {
     updateSelection(node, emit = true) {
         this.selectedId = node ? node.id : null;
 
-        // Notify parent
         if (emit && this.onSelection) this.onSelection('node', node);
 
-        // Update Visuals
+        // Pre-calculate neighbors for O(1) lookup
+        const neighbors = new Set();
+        if (this.selectedId) {
+            this.links.forEach(l => {
+                if (l.source.id === this.selectedId) neighbors.add(l.target.id);
+                if (l.target.id === this.selectedId) neighbors.add(l.source.id);
+            });
+        }
+
+        // Update Visuals (O(N) Complexity)
         this.nodeSprites.forEach((sprite, id) => {
             if (!this.selectedId) {
+                // No selection: Show all 100%
                 sprite.alpha = 1;
                 sprite.scale.set(0.5);
             } else {
                 if (id === this.selectedId) {
+                    // Selected
                     sprite.alpha = 1;
                     sprite.scale.set(0.8);
+                } else if (neighbors.has(id)) {
+                    // Neighbor
+                    sprite.alpha = 0.8;
+                    sprite.scale.set(0.5);
                 } else {
-                    // Check if neighbor
-                    // Slow linkage check (O(N) or O(E)), manageable for <1000 nodes
-                    const isNeighbor = this.links.some(l =>
-                        (l.source.id === this.selectedId && l.target.id === id) ||
-                        (l.target.id === this.selectedId && l.source.id === id)
-                    );
-
-                    if (isNeighbor) {
-                        sprite.alpha = 0.8;
-                    } else {
-                        sprite.alpha = 0.1;
-                    }
+                    // Dimmed
+                    sprite.alpha = 0.1;
                     sprite.scale.set(0.5);
                 }
             }
         });
     }
+
 
     // --- Helpers ---
 
@@ -388,48 +366,35 @@ export class NetworkGraphRenderer {
     }
 }
 
-// Global instance manager for simple integration with existing main.js
+// Global instance manager
 let renderer = null;
 
 export async function renderNetworkGraphGL(flows, containerId, onSelection, onHideNode, selectedNode = null) {
     if (!renderer) {
         renderer = new NetworkGraphRenderer(containerId);
     } else {
-        // Check if container changed (rare)
         if (renderer.containerId !== containerId) {
             renderer.destroy();
             renderer = new NetworkGraphRenderer(containerId);
         }
     }
 
-    // Data Stability Check
-    // If flows count matches existing links, we assume data hasn't changed (since selection doesn't filter flows).
-    // This prevents simulation reset on click.
     const isSameData = renderer.app && renderer.links.length === flows.length;
-    console.log(`renderNetworkGraphGL: isSameData=${isSameData}, current links=${renderer.links.length}, new flows=${flows.length}`);
 
     if (!isSameData) {
         await renderer.init(flows, onSelection);
     } else {
-        // Just ensure callback is updated
         renderer.onSelection = onSelection;
-
-        // CRITICAL FIX: Ensure canvas is in DOM
-        // If view switched (List -> Graph), container innerHTML was wiped (or filled with other view).
-        // We MUST check if we need to restore it. 
-        // AND we must clear whatever junk (List/Map) is currently there.
+        // Ensure Canvas is attached if view switched
         if (renderer.app && renderer.app.canvas && !renderer.container.contains(renderer.app.canvas)) {
-            renderer.container.innerHTML = ''; // Clear List/Map content
+            renderer.container.innerHTML = '';
             renderer.container.appendChild(renderer.app.canvas);
         }
     }
 
-    // Update visual selection without emitting event back to store
-    // This prevents clearing a "Packet" selection in the details panel when switching views
     if (selectedNode) {
         renderer.updateSelection(selectedNode, false);
     } else {
-        // If no node selected (e.g. clean state OR packet selected), clear graph selection visually but silently
         renderer.updateSelection(null, false);
     }
 }

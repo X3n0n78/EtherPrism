@@ -1,301 +1,317 @@
 import * as d3 from 'd3';
-// Since we can't easily fetch external map data without internet or large files, 
-// we will simulate a low-poly abstract map or use a simple generated sphere/grid if no data.
-// However, d3-geo allows drawing a sphere projection easily.
+import * as PIXI from 'pixi.js';
 
-export function renderGeoMap(packets, containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-    container.innerHTML = '';
+let app = null;
+let containerEl = null;
 
-    const width = container.clientWidth;
-    const height = container.clientHeight;
+export async function renderGeoMap(packets, containerId) {
+    try {
+        containerEl = document.getElementById(containerId);
+        if (!containerEl) return;
 
-    const svg = d3.select(container).append("svg")
-        .attr("width", width)
-        .attr("height", height)
-        .style("background", "radial-gradient(circle at center, #0f172a 0%, #020617 100%)");
+        // Cleanup previous instance
+        if (app) {
+            app.destroy(true, { children: true, texture: true, baseTexture: true });
+            app = null;
+        }
 
-    // Projection (Orthographic for Globe)
-    const projection = d3.geoOrthographic()
-        .scale(height / 2.5)
-        .translate([width / 2, height / 2])
-        .clipAngle(90);
+        containerEl.innerHTML = '';
+        containerEl.className = 'map-container';
 
-    const path = d3.geoPath().projection(projection);
+        const width = containerEl.clientWidth;
+        const height = containerEl.clientHeight;
 
-    // Group for globe
-    const globe = svg.append("g");
+        // --- Pixi Setup (v8 Syntax) ---
+        app = new PIXI.Application();
 
-    // 1. Draw Globe Background (Ocean)
-    globe.append("path")
-        .datum({ type: "Sphere" })
-        .attr("d", path)
-        .attr("fill", "rgba(15, 23, 42, 0.5)")
-        .attr("stroke", "var(--accent-cyan)")
-        .attr("stroke-width", 1)
-        .attr("opacity", 0.5);
-
-    // 2. Graticule (Grid) - Denser for Cyberpunk look
-    const graticule = d3.geoGraticule().step([10, 10]); // More lines
-    globe.append("path")
-        .datum(graticule())
-        .attr("d", path)
-        .attr("fill", "none")
-        .attr("stroke", "var(--accent-cyan)")
-        .attr("stroke-width", 0.3)
-        .attr("stroke-opacity", 0.15);
-
-    // 2.1 Equator / Prime Meridian - Stronger
-    globe.append("path")
-        .datum(d3.geoGraticule().outline())
-        .attr("d", path)
-        .attr("fill", "none")
-        .attr("stroke", "var(--accent-cyan)")
-        .attr("stroke-width", 1.5)
-        .attr("stroke-opacity", 0.5);
-
-    // 2.2 Continents (Try loading from CDN)
-    const url = "https://unpkg.com/world-atlas@2.0.2/countries-110m.json";
-
-    d3.json(url).then(data => {
-        // Dynamic Import topojson only if needed or assume d3 includes it? 
-        // D3 v7 doesn't bundle topojson. We need to check if we can import it or if user has it.
-        // The prompt says "build tool is Vite". We might not have topojson-client installed.
-        // User said "dependencies: d3, d3-sankey, pixi.js, d3-geo". 
-        // If topojson is not in package.json, we can't use it easily without installing.
-        // BUT, we can use a pure GeoJSON endpoint or attempt to fetch topojson and ignore if fail.
-        // Actually, let's use a GeoJSON source to avoid topojson dependency if possible?
-        // Or just ask to install topojson-client?
-        // Wait, user said "api hívás nélkül valami online forrást" - usually implies static file.
-
-        // Let's try to simulate fetching a GeoJSON file instead which D3 can handle natively without topojson lib.
-        // GeoJSON version of world map:
-        // https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson
-
-        const geoJsonUrl = "https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson";
-
-        d3.json(geoJsonUrl).then(geojson => {
-            globe.insert("g", ".graticule") // Insert before graticule or after?
-                .selectAll("path")
-                .data(geojson.features)
-                .enter().append("path")
-                .attr("d", path)
-                .attr("fill", "#1e293b")
-                .attr("stroke", "var(--accent-cyan)")
-                .attr("stroke-width", 0.5)
-                .attr("opacity", 0.3);
-        }).catch(err => {
-            console.warn("Could not load online map, falling back to procedural", err);
-            renderProceduralContinents(globe, path);
+        await app.init({
+            width: width,
+            height: height,
+            backgroundAlpha: 0, // Transparent
+            antialias: true,
+            resolution: window.devicePixelRatio || 1,
+            autoDensity: true,
+            preference: 'webgl' // Prefer WebGL
         });
 
-    }).catch(() => {
-        renderProceduralContinents(globe, path);
-    });
+        // v8 uses app.canvas instead of app.view
+        containerEl.appendChild(app.canvas);
 
-    // Fallback function
-    function renderProceduralContinents(globe, path) {
-        // ... (Keep the previous abstract polygon logic here as fallback)
-        const techZones = [
-            { type: "Polygon", coordinates: [[[-100, 40], [-80, 50], [-60, 30], [-80, 20], [-100, 40]]] }, // NA
-            { type: "Polygon", coordinates: [[[10, 50], [40, 60], [50, 40], [20, 30], [10, 50]]] }, // EU
-            { type: "Polygon", coordinates: [[[100, 40], [120, 50], [140, 30], [110, 20], [100, 40]]] }, // ASIA
-            { type: "Polygon", coordinates: [[[-60, -20], [-40, -10], [-30, -30], [-50, -40], [-60, -20]]] }, // SA
-            { type: "Polygon", coordinates: [[[20, -20], [40, -10], [50, -30], [30, -40], [20, -20]]] }, // AF
-        ];
-        globe.selectAll(".tech-zone")
-            .data(techZones)
-            .enter().append("path")
-            .attr("d", path)
-            .attr("fill", "var(--accent-cyan)")
-            .attr("fill-opacity", 0.05)
-            .attr("stroke", "var(--accent-cyan)")
-            .attr("stroke-width", 0.5)
-            .attr("stroke-dasharray", "4,2");
-    }
+        // --- Projection (Math only) ---
+        const projection = d3.geoOrthographic()
+            .scale(height / 2.2)
+            .translate([width / 2, height / 2])
+            .clipAngle(90);
 
-    /* 
-    // Commented out original procedural block to avoid duplicate declaration if strict
-    // 2.2 Cyber Continents (Simulated with simple Polygons)
-    // ...
-    */
+        const path = d3.geoPath().projection(projection);
 
-    // We need to move the ipToGo function outside or keep it clean
+        // --- Containers ---
+        const globeContainer = new PIXI.Container();
+        const mapContainer = new PIXI.Container(); // Rotating part
+        const particleContainer = new PIXI.Container();
+
+        app.stage.addChild(globeContainer);
+        app.stage.addChild(mapContainer);
+        app.stage.addChild(particleContainer);
 
 
-    function ipToGo(ip) {
-        if (!ip) return [0, 0];
-        // Simple hash to lon/lat
-        // IPv4: A.B.C.D
-        // Use A, B to determine general region roughly
-        const parts = ip.split('.').map(Number);
-        if (parts.length !== 4) return [0, 0];
+        // --- Graphics Objects ---
+        const sphereGfx = new PIXI.Graphics();
+        const graticuleGfx = new PIXI.Graphics();
+        const landGfx = new PIXI.Graphics();
+        const linksGfx = new PIXI.Graphics();
+        const markersGfx = new PIXI.Graphics();
 
-        // Pseudo-random but deterministic
-        const lon = ((parts[0] * parts[1] + parts[2]) % 360) - 180;
-        const lat = ((parts[1] * parts[3] + parts[0]) % 180) - 90;
-        return [lon, lat];
-    }
+        // Static Sphere Background (Ocean)
+        sphereGfx.circle(width / 2, height / 2, projection.scale());
+        sphereGfx.fill({ color: 0x0f172a, alpha: 0.5 });
+        sphereGfx.stroke({ width: 1, color: 0x1e293b });
+        globeContainer.addChild(sphereGfx);
 
-    // Aggregate connections
-    const links = [];
-    // Limit for performance
-    const limit = Math.min(packets.length, 1000);
+        // Add other layers
+        mapContainer.addChild(graticuleGfx);
+        mapContainer.addChild(landGfx);
+        mapContainer.addChild(linksGfx);
+        mapContainer.addChild(markersGfx);
 
-    for (let i = 0; i < limit; i++) {
-        const p = packets[i];
-        if (p.ip) {
+
+        // --- Data Prep ---
+        const nodes = new Map();
+        const links = [];
+        const limit = 2000; // Increased limit for WebGL
+
+        function getCoords(ip) {
+            if (!ip) return [0, 0];
+            const parts = ip.split('.').map(Number);
+            if (parts.length !== 4) return [0, 0];
+            const lon = ((parts[0] * 97 + parts[1] * 11) % 360) - 180;
+            const lat = ((parts[2] * 43 + parts[3] * 7) % 160) - 80;
+            return [lon, lat];
+        }
+
+        packets.slice(0, limit).forEach(p => {
+            if (!p.ip) return;
+            const src = p.ip.src;
+            const dst = p.ip.dst;
+
+            if (!nodes.has(src)) nodes.set(src, { id: src, coords: getCoords(src) });
+            if (!nodes.has(dst)) nodes.set(dst, { id: dst, coords: getCoords(dst) });
+
             links.push({
-                source: ipToGo(p.ip.src),
-                target: ipToGo(p.ip.dst),
-                proto: p.tcp ? 'tcp' : 'udp'
+                source: nodes.get(src).coords,
+                target: nodes.get(dst).coords,
+                protocol: p.tcp ? 'tcp' : 'udp',
+                color: p.tcp ? 0x38bdf8 : 0xf59e0b
             });
-        }
-    }
-
-    // Draw Arcs
-    globe.selectAll(".link")
-        .data(links)
-        .enter().append("path")
-        .attr("class", "link")
-        .attr("d", d => path({ type: "LineString", coordinates: [d.source, d.target] }))
-        .attr("fill", "none")
-        .attr("stroke", d => d.proto === 'tcp' ? "var(--accent-blue)" : "var(--accent-warn)")
-        .attr("stroke-width", 1)
-        .attr("stroke-opacity", 0.3);
-
-    // Draw Nodes (Sources/Targets)
-    const points = links.flatMap(l => [l.source, l.target]);
-    // Deduplicate? For visualization, overlapping dots usually look okay as "heat".
-
-    // Draw Nodes (Sources/Targets) using Path for perfect sync
-    // We convert points to GeoJSON Point features
-    const pointFeatures = points.map(p => ({
-        type: "Feature",
-        geometry: {
-            type: "Point",
-            coordinates: p
-        }
-    }));
-
-    globe.selectAll(".node")
-        .data(pointFeatures)
-        .enter().append("path")
-        .attr("class", "node")
-        .attr("d", path.pointRadius(2))
-        .attr("fill", "var(--accent-cyan)")
-        .attr("opacity", 0.6);
-
-    // Interaction: Drag to Rotate, Scroll to Zoom
-    const drag = d3.drag()
-        .on("drag", (event) => {
-            const rotate = projection.rotate();
-            const k = sensitivity / projection.scale();
-            projection.rotate([
-                rotate[0] + event.dx * k,
-                rotate[1] - event.dy * k
-            ]);
-            updateAll();
         });
 
-    const zoom = d3.zoom()
-        .scaleExtent([100, 1000])
-        .on("zoom", (event) => {
-            projection.scale(event.transform.k);
-            updateAll();
-        });
+        const nodeList = Array.from(nodes.values());
+        console.log(`[GeoMapGL] Loaded ${nodeList.length} Nodes, ${links.length} Links`);
 
-    function updateAll() {
-        svg.selectAll("path").attr("d", path);
-    }
+        // --- Load World Data ---
+        let worldFeatures = [];
+        const graticuleObj = d3.geoGraticule10 ? d3.geoGraticule10() : d3.geoGraticule(); // Helper for older versions
 
-    // Apply interactions to SVG wrapper (or a rect overlay)
-    // To allow rotation everywhere, apply to svg
-    svg.call(drag);
-    svg.call(zoom)
-        .call(zoom.transform, d3.zoomIdentity.scale(projection.scale()));
-
-    const sensitivity = 75;
-
-    // ... (rest of rendering)
-
-    // Helper to update point positions (since they are circles, not paths in original code, but we moved to paths? 
-    // Wait, previous code used circles for nodes. Let's switch nodes to use geoPath point features for easier sync, 
-    // or manually update cx/cy.
-
-    function updatePoints() {
-        globe.selectAll(".node")
-            .attr("cx", d => {
-                const p = projection(d);
-                return p ? p[0] : -10;
+        fetch("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson")
+            .then(res => res.json())
+            .then(data => {
+                worldFeatures = data.features;
             })
-            .attr("cy", d => {
-                const p = projection(d);
-                return p ? p[1] : -10;
-            })
-            // Hide if behind globe
-            .attr("display", d => {
-                const center = projection.invert([width / 2, height / 2]);
-                const dist = d3.geoDistance(d, center);
-                return (dist > 1.57) ? 'none' : 'block';
-            });
-    }
+            .catch(err => console.warn("GeoJSON fallback", err));
 
-    // Packet Particles
-    // Animate small circles moving along the connection paths
-    const particles = [];
-    links.forEach(l => {
-        particles.push({
+        // --- Particles ---
+        const particles = links.map(l => ({
             link: l,
             t: Math.random(),
-            speed: 0.005 + Math.random() * 0.005
+            speed: 0.003 + Math.random() * 0.005,
+            gfx: new PIXI.Graphics()
+        }));
+
+        particles.forEach(p => {
+            // v8 Graphics API: circle(x,y,r).fill(color)
+            p.gfx.circle(0, 0, 2);
+            p.gfx.fill(0xFFFFFF);
+            particleContainer.addChild(p.gfx);
         });
-    });
 
-    const particleGroup = svg.append("g").attr("class", "particles");
 
-    // Animation Loop
-    d3.timer((elapsed) => {
-        // We disabled auto-rotation for manual control, or we can keep it until user interacts?
-        // Let's rely on manual interaction now as requested.
+        // --- Animation State ---
+        const config = { speed: 0.005, sensitivity: 75 };
+        let isDragging = false;
+        let rotation = [0, -20]; // Initial rotation
 
-        // Update Particles
-        const particleSel = particleGroup.selectAll(".particle")
-            .data(particles);
+        // --- Interaction (D3 Drag on Canvas) ---
+        // We attach D3 drag behavior to the canvas element
+        const canvas = d3.select(app.canvas);
 
-        particleSel.enter().append("circle")
-            .attr("class", "particle")
-            .attr("r", 2)
-            .attr("fill", "#fff")
-            .merge(particleSel)
-            .attr("cx", d => {
-                // Interpolate along Great Arc?
-                // D3-geo doesn't give easy point-at-t.
-                // But we can interpolate coordinates manually or use d3.geoInterpolate
-                const interpolator = d3.geoInterpolate(d.link.source, d.link.target);
-                const pos = interpolator(d.t);
-                const projected = projection(pos);
-                return projected ? projected[0] : -100;
+        const drag = d3.drag()
+            .on("start", () => { isDragging = true; })
+            .on("drag", (event) => {
+                const k = config.sensitivity / projection.scale();
+                rotation[0] += event.dx * k;
+                rotation[1] -= event.dy * k;
+                projection.rotate(rotation);
             })
-            .attr("cy", d => {
-                const interpolator = d3.geoInterpolate(d.link.source, d.link.target);
-                const pos = interpolator(d.t);
-                const projected = projection(pos);
-                return projected ? projected[1] : -100;
-            })
-            .attr("opacity", d => {
-                // Fade if behind globe
-                const interpolator = d3.geoInterpolate(d.link.source, d.link.target);
-                const pos = interpolator(d.t);
-                const center = projection.invert([width / 2, height / 2]);
-                return (d3.geoDistance(pos, center) > 1.57) ? 0 : 1;
+            .on("end", () => { isDragging = false; });
+
+        const zoom = d3.zoom()
+            .scaleExtent([200, 1000])
+            .on("zoom", (event) => {
+                const newScale = event.transform.k;
+                projection.scale(newScale);
+
+                // Resize static sphere (Pixi v8)
+                sphereGfx.clear();
+                sphereGfx.circle(width / 2, height / 2, newScale);
+                sphereGfx.fill({ color: 0x0f172a, alpha: 0.5 });
+                sphereGfx.stroke({ width: 1, color: 0x1e293b });
             });
 
-        // Advance particles
-        particles.forEach(p => {
-            p.t += p.speed;
-            if (p.t > 1) p.t = 0;
+        canvas.call(drag);
+        canvas.call(zoom).call(zoom.transform, d3.zoomIdentity.scale(projection.scale()));
+
+
+        // --- Render Loop ---
+        app.ticker.add(() => {
+            if (!app || !app.stage) return;
+
+            // 1. Auto Rotate
+            if (!isDragging) {
+                rotation[0] += 0.1;
+                projection.rotate(rotation);
+            } else {
+                projection.rotate(rotation);
+            }
+
+            // 2. Draw World & Graticule
+            // Graticule
+            graticuleGfx.clear();
+            const gratCtx = getPixiContext(graticuleGfx);
+            // .stroke() needs to be called after path for context? 
+            // Our context proxy mimics 2D canvas, using direct PIXI calls.
+            // Pixi v8 expects explicit Stroke styles usually?
+            // Actually, we can just use `lineStyle` (deprecated but works) or `stroke`?
+            // Let's stick to our proxy mapping to `graphics` methods.
+            // In v8 `moveTo`, `lineTo` work, but `stroke()` needs to be called?
+            // "GraphicsContext" is complex.
+            // Simplest v8: `graphics.moveTo(..).lineTo(..).stroke(...)`.
+            // D3 path calls `moveTo`, `lineTo`. It doesn't call `stroke`.
+            // So we must set style BEFORE (in v7) or call `stroke` AFTER (in v8)?
+            // v8: `graphics.beginPath()...stroke()`.
+
+            // To be safe with v8 and D3's synchronous drawing:
+            // We set the stroke style first using modern v8 `setStrokeStyle` equivalent or just `stroke(...)` at the end?
+            // Actually D3 sends commands. We need to execute them.
+            // Let's use `graphics.moveTo` etc. and then `graphics.stroke(...)`.
+
+            // But D3 calls multiple sub-paths.
+            // We'll define a robust context.
+
+            // Graticule Style
+            // graticuleGfx.strokeStyle = { width: 1, color: 0x00f3ff, alpha: 0.15 }; // v7?
+            // v8: `graphics.context.stroke(...)` but `graphics` is high level.
+
+            // Let's iterate using D3 path.
+
+            // v8 workaround: D3 path expects a context with 2D-API.
+            // We can wrap it.
+
+            path.context(gratCtx)(graticuleObj);
+            graticuleGfx.stroke({ width: 1, color: 0x00f3ff, alpha: 0.15 });
+
+
+            // Land
+            landGfx.clear();
+            const landCtx = getPixiContext(landGfx);
+            if (worldFeatures.length > 0) {
+                worldFeatures.forEach(f => {
+                    path.context(landCtx)(f);
+                    // Fill and Stroke for each feature? 
+                    // D3 path just traces.
+                });
+                landGfx.fill({ color: 0x0f172a, alpha: 0.8 });
+                landGfx.stroke({ width: 1, color: 0x38bdf8, alpha: 0.4 });
+            }
+
+            // Links
+            linksGfx.clear();
+            const linkCtx = getPixiContext(linksGfx);
+            links.forEach(l => {
+                // For efficiency, we should batch. But simple loop is okay for <2000 lines.
+                // Ideally we draw all TCP then all UDP.
+            });
+
+            // Optimization: Draw all same-colored links in one path
+            const tcpLinks = links.filter(l => l.protocol === 'tcp');
+            const udpLinks = links.filter(l => l.protocol !== 'tcp');
+
+            // Draw TCP
+            linksGfx.beginPath(); // v8
+            tcpLinks.forEach(l => {
+                path.context(linkCtx)({ type: "LineString", coordinates: [l.source, l.target] });
+            });
+            linksGfx.stroke({ width: 1, color: 0x38bdf8, alpha: 0.3 });
+
+            // Draw UDP
+            linksGfx.beginPath();
+            udpLinks.forEach(l => {
+                path.context(linkCtx)({ type: "LineString", coordinates: [l.source, l.target] });
+            });
+            linksGfx.stroke({ width: 1, color: 0xf59e0b, alpha: 0.3 });
+
+
+            // Markers
+            markersGfx.clear();
+            const center = projection.invert([width / 2, height / 2]);
+            const isVisible = (coords) => center && d3.geoDistance(coords, center) <= 1.57;
+
+            nodeList.forEach(n => {
+                if (isVisible(n.coords)) {
+                    const p = projection(n.coords);
+                    if (p) {
+                        markersGfx.circle(p[0], p[1], 2);
+                    }
+                }
+            });
+            markersGfx.fill({ color: 0x38bdf8, alpha: 0.8 });
+
+
+            // Particles
+            particles.forEach(p => {
+                p.t += p.speed;
+                if (p.t > 1) p.t = 0;
+
+                const interpolator = d3.geoInterpolate(p.link.source, p.link.target);
+                const geoPos = interpolator(p.t);
+
+                if (isVisible(geoPos)) {
+                    const screenPos = projection(geoPos);
+                    if (screenPos) {
+                        p.gfx.visible = true;
+                        p.gfx.x = screenPos[0];
+                        p.gfx.y = screenPos[1];
+                        return;
+                    }
+                }
+                p.gfx.visible = false;
+            });
         });
-    });
+
+    } catch (err) {
+        console.error("Map Render Fail:", err);
+        if (containerEl) {
+            containerEl.innerHTML = `<div class="error-msg" style="color:red; p:20px;">WebGL Error: ${err.message}</div>`;
+        }
+    }
+}
+
+// v8-Compatible Context Proxy
+function getPixiContext(graphics) {
+    return {
+        beginPath: () => { /* graphics.beginPath() called manually */ },
+        moveTo: (x, y) => graphics.moveTo(x, y),
+        lineTo: (x, y) => graphics.lineTo(x, y),
+        arc: (x, y, r, sa, ea, ccw) => graphics.arc(x, y, r, sa, ea, ccw),
+        closePath: () => graphics.closePath(),
+    };
 }

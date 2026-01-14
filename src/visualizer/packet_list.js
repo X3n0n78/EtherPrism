@@ -1,177 +1,293 @@
 import { renderHexView } from './hex_view.js';
 
-export function renderPacketList(packets, containerId, allPackets = []) {
+// State for Virtual Scroller
+let state = {
+    rowHeight: 32,
+    buffer: 25, // Increased buffer for smoother scrolling
+    poolSize: 0,
+    viewportHeight: 0,
+    scroller: null,
+    spacer: null,
+    listBody: null,
+    pool: [], // Array of { el: div, index: -1 }
+    packets: [],
+    ticking: false,
+    headerCreated: false
+};
+
+const COLUMNS = [
+    { name: 'No.', width: '60px', flex: '0 0 60px' },
+    { name: 'Time', width: '100px', flex: '0 0 100px' },
+    { name: 'Source', flex: '1 1 150px' },
+    { name: 'Destination', flex: '1 1 150px' },
+    { name: 'Proto', width: '70px', flex: '0 0 70px' },
+    { name: 'Len', width: '60px', flex: '0 0 60px' },
+    { name: 'Info', flex: '2 1 300px' }
+];
+
+export function renderPacketList(packets, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // Initial Setup (if first render or container cleared)
-    // Avoid rebuilding static header if already exists
-    let tbody = document.getElementById('packet-table-body');
-    let scrollWrapper = container.querySelector('.packet-table-wrapper');
+    // Detect new dataset
+    const isNewData = state.packets !== packets;
+    state.packets = packets;
 
-    if (!tbody || container.innerHTML === '') {
-        container.innerHTML = `
-            <div class="packet-list-container" style="display:flex; flex-direction:column; height:100%;">
-                <div class="packet-list-header">
-                    <div style="font-weight:600; color:var(--text-primary)">Packet Capture</div>
-                    <div class="packet-count" style="color:var(--text-secondary)">${packets.length.toLocaleString()} events</div>
-                </div>
-                
-                <!-- Fixed Table Header -->
-                <div class="packet-table-header-row" style="padding-right: 6px; background: var(--bg-header); border-bottom: 1px solid var(--border-subtle); z-index: 10;">
-                     <table style="width:100%; table-layout: fixed; border-collapse: collapse;">
-                        <thead>
-                            <tr style="height:36px; color:var(--text-secondary); text-align:left; font-size: 0.8rem;"> 
-                                <th style="width:60px; padding:0 12px; font-weight:600; color:var(--text-primary);">No.</th>
-                                <th style="width:140px; padding:0 12px; font-weight:600; color:var(--text-primary);">Time</th>
-                                <th style="width:200px; padding:0 12px; font-weight:600; color:var(--text-primary);">Source</th>
-                                <th style="width:200px; padding:0 12px; font-weight:600; color:var(--text-primary);">Destination</th>
-                                <th style="width:80px; padding:0 12px; font-weight:600; color:var(--text-primary);">Proto</th>
-                                <th style="width:80px; padding:0 12px; font-weight:600; color:var(--text-primary);">Len</th>
-                                <th style="padding:0 12px; font-weight:600; color:var(--text-primary);">Info</th>
-                            </tr>
-                        </thead>
-                     </table>
-                </div>
+    // Initial DOM Setup (Run Once)
+    if (!state.headerCreated || container.innerHTML === '') {
+        console.log("[PacketList] Setup Container");
+        setupContainer(container, packets.length);
+        state.headerCreated = true;
 
-                <!-- Scrollable Body -->
-                <div class="packet-table-wrapper" style="overflow-y:auto; flex:1; position:relative;">
-                    <div id="virtual-scroller-spacer" style="width:1px;"></div>
-                    <table class="packet-table" style="position:absolute; top:0; left:0; width:100%; table-layout: fixed; border-collapse: collapse;">
-                        <!-- Hidden header for sizing alignment - Ensures columns match visual header -->
-                        <thead style="visibility:hidden; height:0; line-height:0; pointer-events:none;">
-                             <tr style="height:0;"> 
-                                <th style="width:60px; padding:0 8px; border:none; height:0;"></th>
-                                <th style="width:140px; padding:0 8px; border:none; height:0;"></th>
-                                <th style="width:200px; padding:0 8px; border:none; height:0;"></th>
-                                <th style="width:200px; padding:0 8px; border:none; height:0;"></th>
-                                <th style="width:80px; padding:0 8px; border:none; height:0;"></th>
-                                <th style="width:80px; padding:0 8px; border:none; height:0;"></th>
-                                <th style="padding:0 8px; border:none; height:0;"></th>
-                            </tr>
-                        </thead>
-                        <tbody id="packet-table-body"></tbody>
-                    </table>
-                </div>
-            </div>
-        `;
-        tbody = document.getElementById('packet-table-body');
-        scrollWrapper = container.querySelector('.packet-table-wrapper');
+        // Setup State Refs
+        state.listBody = document.getElementById('packet-list-body');
+        state.scroller = container.querySelector('.packet-list-scroller');
+        state.spacer = document.getElementById('virtual-scroller-spacer');
 
-        // Virtual Scroll Logic
-        scrollWrapper.addEventListener('scroll', () => {
-            renderVirtualRows(packets, tbody, scrollWrapper);
+        // Initialize Pool
+        requestAnimationFrame(() => {
+            initPool();
+            updateMeta(container, packets.length);
+            // On first load, scroll to top
+            state.scroller.scrollTop = 0;
+            render();
         });
 
-        // Initial Render
-        // Set spacer height
-        const rowHeight = 32; // Approx px per row
-        const totalHeight = packets.length * rowHeight;
-        document.getElementById('virtual-scroller-spacer').style.height = `${totalHeight}px`;
+        // Attach Listener
+        state.scroller.addEventListener('scroll', onScroll, { passive: true });
 
-        renderVirtualRows(packets, tbody, scrollWrapper);
+        // Handle Resize
+        const resizeObserver = new ResizeObserver(() => {
+            // If height changes significantly, re-calc pool
+            if (state.scroller.clientHeight !== state.viewportHeight) {
+                initPool();
+                render(); // Force render
+            }
+        });
+        resizeObserver.observe(state.scroller);
     } else {
         // Just Update Data
-        // Update count
-        container.querySelector('.packet-count').textContent = `${packets.length.toLocaleString()} events`;
+        updateMeta(container, packets.length);
 
-        const rowHeight = 32;
-        const totalHeight = packets.length * rowHeight;
-        document.getElementById('virtual-scroller-spacer').style.height = `${totalHeight}px`;
-
-        // If packets changed significantly, reset scroll? 
-        // For now, keep scroll but re-render
-        renderVirtualRows(packets, tbody, scrollWrapper);
-    }
-}
-
-function renderVirtualRows(packets, tbody, scrollWrapper) {
-    const rowHeight = 32;
-    const viewportHeight = scrollWrapper.clientHeight;
-    const scrollTop = scrollWrapper.scrollTop;
-
-    // Calculate visible range
-    let startIdx = Math.floor(scrollTop / rowHeight);
-    let endIdx = Math.ceil((scrollTop + viewportHeight) / rowHeight);
-
-    // Buffer
-    startIdx = Math.max(0, startIdx - 10);
-    endIdx = Math.min(packets.length, endIdx + 10);
-
-    // Positioning
-    const topOffset = startIdx * rowHeight;
-
-    const table = tbody.parentElement;
-    table.style.transform = `translateY(${topOffset}px)`;
-
-    // Reset tbody
-    tbody.innerHTML = '';
-
-    const fragment = document.createDocumentFragment();
-
-    for (let i = startIdx; i < endIdx; i++) {
-        const packet = packets[i];
-        if (!packet) continue;
-
-        const tr = document.createElement('tr');
-        tr.style.height = `${rowHeight}px`;
-        tr.dataset.index = i;
-
-        // Proto Class
-        let proto = 'ETH';
-        let protoClass = 'badge-secondary'; // default
-        if (packet.tcp) { proto = 'TCP'; protoClass = 'badge-tcp'; }
-        else if (packet.udp) { proto = 'UDP'; protoClass = 'badge-udp'; }
-        else if (packet.icmp) { proto = 'ICMP'; protoClass = 'badge-severe'; }
-        else if (packet.app) { proto = packet.app.type; protoClass = 'badge-tcp'; }
-
-        // Info
-        let info = '';
-        if (packet.app) info = packet.app.info;
-        else if (packet.tcp) {
-            const flags = [];
-            if (packet.tcp.syn) flags.push('SYN');
-            if (packet.tcp.ack) flags.push('ACK');
-            if (packet.tcp.fin) flags.push('FIN');
-            if (packet.tcp.rst) flags.push('RST');
-            info = `${packet.tcp.src_port} → ${packet.tcp.dst_port} [${flags.join(',')}] Seq=${packet.tcp.seq}`;
-        } else if (packet.udp) {
-            info = `${packet.udp.src_port} → ${packet.udp.dst_port} Len=${packet.udp.length}`;
+        if (isNewData) {
+            // Force reset to top on new file
+            state.scroller.scrollTop = 0;
         }
 
-        // Truncate info
-        if (info.length > 80) info = info.substring(0, 80) + '...';
-
-        const cellStyle = "white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:0;";
-
-        tr.innerHTML = `
-            <td>${i + 1}</td>
-            <td>${(packet.timestamp / 1000000).toFixed(6)}</td>
-            <td style="${cellStyle}" title="${packet.ip?.src || 'L2'}">${packet.ip?.src || 'L2'}</td>
-            <td style="${cellStyle}" title="${packet.ip?.dst || 'L2'}">${packet.ip?.dst || 'L2'}</td>
-            <td><span class="badge ${protoClass}">${proto}</span></td>
-            <td>${packet.length ?? packet.len ?? 0}</td>
-            <td style="${cellStyle}" title="${escapeHtml(info)}">${escapeHtml(info)}</td>
-        `;
-
-        tr.onclick = () => {
-            // Update Visual Selection
-            tbody.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
-            tr.classList.add('selected');
-            window.dispatchEvent(new CustomEvent('packet-selected', { detail: packet }));
-        };
-
-        fragment.appendChild(tr);
+        requestAnimationFrame(render);
     }
-
-    tbody.appendChild(fragment);
 }
 
-function escapeHtml(text) {
-    return text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+function setupContainer(container, count) {
+    // Generate Header HTML
+    const headerCells = COLUMNS.map(col => `
+        <div style="flex: ${col.flex}; padding: 0 8px; font-weight:600; color:var(--text-primary); white-space:nowrap; overflow:hidden;">${col.name}</div>
+    `).join('');
+
+    container.innerHTML = `
+        <div class="packet-list-container" style="display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; position:relative;">
+            <div class="packet-list-meta" style="flex: 0 0 auto; padding: 8px 16px; display:flex; justify-content:space-between; align-items:center; background:var(--bg-panel);">
+                <div style="font-weight:600; color:var(--text-primary)">Packet Capture</div>
+                <div class="packet-count" style="color:var(--text-secondary); font-variant-numeric: tabular-nums;">${count.toLocaleString()} events</div>
+            </div>
+            
+            <!-- Header Row -->
+            <div class="packet-list-header-row" style="flex: 0 0 36px; display:flex; align-items:center; background: var(--bg-header); border-bottom: 1px solid var(--border-subtle); padding-right:6px; font-size:0.8rem;">
+                ${headerCells}
+            </div>
+
+            <!-- Scrollable Body with Anchor Locking Disabled -->
+            <div class="packet-list-scroller" style="flex:1 1 auto; height:0; min-height:0; overflow-y:auto; overflow-anchor: none; position:relative; will-change: transform;">
+                <!-- Spacer -->
+                <div id="virtual-scroller-spacer" style="height:1px; width:1px;"></div>
+                
+                <!-- Absolute Container for Rows -->
+                <div id="packet-list-body" style="position:absolute; top:0; left:0; width:100%;"></div>
+            </div>
+        </div>
+    `;
+}
+
+function updateMeta(container, count) {
+    const meta = container.querySelector('.packet-count');
+    if (meta) meta.textContent = `${count.toLocaleString()} events`;
+
+    // Update Spacer Height
+    if (state.spacer) {
+        const totalH = count * state.rowHeight;
+        state.spacer.style.height = `${totalH}px`;
+    }
+}
+
+function initPool() {
+    state.viewportHeight = state.scroller.clientHeight;
+
+    // Safety check: force large viewport assumption if detection fails
+    if (!state.viewportHeight || state.viewportHeight < 100) {
+        state.viewportHeight = 1000;
+    }
+
+    const visibleCount = Math.ceil(state.viewportHeight / state.rowHeight);
+    // Large buffer to prevent black gaps on fast scroll
+    const needed = visibleCount + (state.buffer * 2);
+
+    // console.log(`[PacketList] Init Pool: Viewport=${state.viewportHeight}px, Needed=${needed}`);
+
+    // Check if we need to expand pool
+    if (state.pool.length < needed) {
+        const fragment = document.createDocumentFragment();
+        const start = state.pool.length;
+        // Ensure minimal pool size (e.g. at least 60 rows) to be safe
+        const safeNeeded = Math.max(needed, 60);
+
+        for (let i = start; i < safeNeeded; i++) {
+            const row = document.createElement('div');
+            row.className = 'packet-row';
+            row.style.cssText = `
+                position: absolute;
+                top: -500px;
+                left: 0; width: 100%;
+                height: ${state.rowHeight}px;
+                display: flex;
+                align-items: center;
+                border-bottom: 1px solid var(--border-subtle);
+                font-size: 0.85rem;
+                cursor: pointer;
+                background: var(--bg-panel);
+                will-change: transform;
+            `;
+
+            // Create Cells
+            COLUMNS.forEach((col, idx) => {
+                const cell = document.createElement('div');
+                cell.style.cssText = `
+                    flex: ${col.flex};
+                    padding: 0 8px;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                `;
+                row.appendChild(cell);
+            });
+
+            row.onclick = () => handleRowClick(row);
+
+            fragment.appendChild(row);
+            state.pool.push({ el: row, index: -1, visible: false });
+        }
+        state.listBody.appendChild(fragment);
+        state.poolSize = state.pool.length;
+    }
+}
+
+function onScroll() {
+    if (!state.ticking) {
+        requestAnimationFrame(() => {
+            render();
+            state.ticking = false;
+        });
+        state.ticking = true;
+    }
+}
+
+function render() {
+    const scrollTop = state.scroller.scrollTop;
+    const viewportH = state.scroller.clientHeight || state.viewportHeight || 1000;
+
+    // Determine range
+    const startIdx = Math.floor(scrollTop / state.rowHeight);
+    const endIdx = Math.ceil((scrollTop + viewportH) / state.rowHeight);
+
+    // Buffer
+    const bufferStart = Math.max(0, startIdx - state.buffer);
+    const bufferEnd = Math.min(state.packets.length, endIdx + state.buffer);
+
+    // Render Loop
+    for (let i = bufferStart; i < bufferEnd; i++) {
+        const poolIndex = i % state.poolSize;
+        const node = state.pool[poolIndex];
+
+        if (node) {
+            updateRow(node, i);
+        }
+    }
+}
+
+function updateRow(node, dataIndex) {
+    const packet = state.packets[dataIndex];
+    if (!packet) return;
+
+    // Optimization: Skip valid
+    if (node.index === dataIndex && node.visible) return;
+
+    const row = node.el;
+
+    // Position
+    const top = dataIndex * state.rowHeight;
+    row.style.transform = `translateY(${top}px)`;
+    row.style.top = '0px'; // CRITICAL FIX: Reset the init -500px offset
+    row.style.display = 'flex'; // Ensure visible
+
+    node.index = dataIndex;
+    node.visible = true;
+
+    const cells = row.children;
+
+    // 0: No
+    cells[0].textContent = dataIndex + 1;
+    // 1: Time
+    cells[1].textContent = (packet.timestamp / 1000000).toFixed(6);
+    // 2: Src
+    cells[2].textContent = packet.ip?.src || 'L2';
+    cells[2].title = packet.ip?.src || '';
+    // 3: Dst
+    cells[3].textContent = packet.ip?.dst || 'L2';
+    cells[3].title = packet.ip?.dst || '';
+
+    // 4: Proto
+    const [proto, cls] = getProtoBadge(packet);
+    if (cells[4].textContent !== proto) {
+        cells[4].innerHTML = `<span class="badge ${cls}">${proto}</span>`;
+    }
+
+    // 5: Len
+    cells[5].textContent = packet.length ?? packet.len ?? 0;
+
+    // 6: Info
+    const info = getInfoText(packet);
+    cells[6].textContent = info;
+    cells[6].title = info;
+
+    // Selection
+    if (row.classList.contains('selected')) {
+        row.classList.remove('selected');
+    }
+}
+
+function handleRowClick(row) {
+    const idx = parseInt(row.children[0].textContent) - 1;
+    const packet = state.packets[idx];
+
+    if (packet) {
+        state.pool.forEach(n => n.el.classList.remove('selected'));
+        row.classList.add('selected');
+        window.dispatchEvent(new CustomEvent('packet-selected', { detail: packet }));
+    }
+}
+
+// Helpers
+function getProtoBadge(p) {
+    if (p.tcp) return ['TCP', 'badge-tcp'];
+    if (p.udp) return ['UDP', 'badge-udp'];
+    if (p.icmp) return ['ICMP', 'badge-severe'];
+    if (p.app) return [p.app.type, 'badge-tcp'];
+    return ['ETH', 'badge-secondary'];
+}
+
+function getInfoText(p) {
+    if (p.app) return p.app.info;
+    if (p.tcp) return `${p.tcp.src_port} → ${p.tcp.dst_port} Seq=${p.tcp.seq}`;
+    if (p.udp) return `${p.udp.src_port} → ${p.udp.dst_port} Len=${p.udp.length}`;
+    if (p.icmp) return `Type: ${p.icmp.type}`;
+    return 'Ethernet Frame';
 }

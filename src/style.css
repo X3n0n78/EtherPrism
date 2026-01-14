@@ -583,6 +583,52 @@ header {
   display: inline-block;
 }
 
-.card-header[aria-expanded="true"] .tree-arrow {
-  transform: rotate(90deg);
+
+/* --- Holomap Styles --- */
+.map-container {
+  background: radial-gradient(circle at 50% 50%, #1e293b 0%, #020617 80%);
+  position: relative;
+  overflow: hidden;
+}
+
+.map-glow-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, transparent 40%, rgba(2, 6, 23, 0.8) 100%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.map-marker {
+  fill: var(--accent-primary);
+  filter: drop-shadow(0 0 4px var(--accent-primary));
+  animation: pulse-marker 2s infinite;
+}
+
+@keyframes pulse-marker {
+  0% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.5);
+  }
+
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+}
+
+.map-link {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.map-particle {
+  fill: #fff;
+  filter: drop-shadow(0 0 2px #fff);
+  pointer-events: none;
 }
