@@ -7,10 +7,6 @@
 ![Status](https://img.shields.io/badge/status-STABLE-10b981?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-818cf8?style=for-the-badge)
 
-<p align="center">
-  <img src="https://via.placeholder.com/800x400/0f111a/38bdf8?text=EtherPrism+Nexus+UI" alt="EtherPrism Nexus UI" width="100%" />
-</p>
-
 *A high-performance, cyberpunk-inspired PCAP analyzer built for next-gen security operations.*
 
 [Features](#-features) • [Installation](#-quick-start) • [Documentation](#-documentation) • [Roadmap](#-roadmap)
@@ -75,14 +71,6 @@ npm run dev
 ```
 
 > The application will launch at `http://localhost:5173`
-
-## 📚 Documentation
-
-Comprehensive documentation is available in the `Dokumentaciok` folder:
-
-- **📄 Product Documentation**: Architecture, SRS, and API specs.
-- **📘 User Manual**: How-to guides for filtering and analyzing streams.
-- **📊 Business Specs**: Functional requirements and project goals.
 
 ## 🔮 Roadmap
 
